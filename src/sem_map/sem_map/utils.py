@@ -96,7 +96,7 @@ class RealSensePointCalculator(Node):
 
     def depth_callback(self, msg):
         self.depth_image = self.bridge.imgmsg_to_cv2(msg, desired_encoding='passthrough')
-        self.depth_time = self.get_clock().now().to_msg()
+        self.depth_time = self.get_clock().now().nanoseconds * 1e-9
 
     def info_callback(self, msg):
         if self.intrinsics is None:
@@ -112,7 +112,7 @@ class RealSensePointCalculator(Node):
             self.destroy_subscription(self.info_sub)
 
     def info_received(self, del_time=0.5):
-        if self.depth_image is None or self.intrinsics is None or float(self.get_clock().now().to_msg() - self.depth_time) > del_time:
+        if self.depth_image is None or self.intrinsics is None or self.get_clock().now().nanoseconds * 1e-9 - self.depth_time > del_time:
             return False
         else:
             return True
