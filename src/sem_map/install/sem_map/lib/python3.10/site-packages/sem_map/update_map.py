@@ -52,7 +52,7 @@ def main(args=None):
             time.sleep(0.1)
 
     except KeyboardInterrupt:
-        print("KeyboardInterrupt caught")
+        pass
     finally:
         print("Shutting down")
         cv2.destroyAllWindows()

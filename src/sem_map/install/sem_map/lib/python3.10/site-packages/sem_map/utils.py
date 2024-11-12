@@ -148,6 +148,7 @@ def update_pcfm(key_points, camera_pose=[], round_to=0.1):
     camera_pose: ros tf
     '''
     for feat_mean, point_mean in key_points:
+        # round point_mean to 0.5
         point_mean = point_mean // round_to * round_to
         if tuple(point_mean) in pcfm:
             pcfm[tuple(point_mean)] = feat_mean

@@ -1,0 +1,3 @@
+[console_scripts]
+update_map = sem_map.update_map:main
+

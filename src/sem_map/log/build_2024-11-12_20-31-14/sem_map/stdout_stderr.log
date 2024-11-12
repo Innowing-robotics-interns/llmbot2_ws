@@ -1,0 +1,42 @@
+running egg_info
+creating build/sem_map/sem_map.egg-info
+writing build/sem_map/sem_map.egg-info/PKG-INFO
+writing dependency_links to build/sem_map/sem_map.egg-info/dependency_links.txt
+writing entry points to build/sem_map/sem_map.egg-info/entry_points.txt
+writing requirements to build/sem_map/sem_map.egg-info/requires.txt
+writing top-level names to build/sem_map/sem_map.egg-info/top_level.txt
+writing manifest file 'build/sem_map/sem_map.egg-info/SOURCES.txt'
+reading manifest file 'build/sem_map/sem_map.egg-info/SOURCES.txt'
+adding license file 'LICENSE'
+writing manifest file 'build/sem_map/sem_map.egg-info/SOURCES.txt'
+running build
+running build_py
+creating /home/fyp/llmbot2_ws/src/sem_map/build/sem_map/build
+creating /home/fyp/llmbot2_ws/src/sem_map/build/sem_map/build/lib
+creating /home/fyp/llmbot2_ws/src/sem_map/build/sem_map/build/lib/sem_map
+copying sem_map/__init__.py -> /home/fyp/llmbot2_ws/src/sem_map/build/sem_map/build/lib/sem_map
+copying sem_map/LoadLSeg.py -> /home/fyp/llmbot2_ws/src/sem_map/build/sem_map/build/lib/sem_map
+copying sem_map/utils.py -> /home/fyp/llmbot2_ws/src/sem_map/build/sem_map/build/lib/sem_map
+copying sem_map/update_map.py -> /home/fyp/llmbot2_ws/src/sem_map/build/sem_map/build/lib/sem_map
+running install
+running install_lib
+creating /home/fyp/llmbot2_ws/src/sem_map/install/sem_map/lib/python3.10/site-packages/sem_map
+copying /home/fyp/llmbot2_ws/src/sem_map/build/sem_map/build/lib/sem_map/__init__.py -> /home/fyp/llmbot2_ws/src/sem_map/install/sem_map/lib/python3.10/site-packages/sem_map
+copying /home/fyp/llmbot2_ws/src/sem_map/build/sem_map/build/lib/sem_map/LoadLSeg.py -> /home/fyp/llmbot2_ws/src/sem_map/install/sem_map/lib/python3.10/site-packages/sem_map
+copying /home/fyp/llmbot2_ws/src/sem_map/build/sem_map/build/lib/sem_map/utils.py -> /home/fyp/llmbot2_ws/src/sem_map/install/sem_map/lib/python3.10/site-packages/sem_map
+copying /home/fyp/llmbot2_ws/src/sem_map/build/sem_map/build/lib/sem_map/update_map.py -> /home/fyp/llmbot2_ws/src/sem_map/install/sem_map/lib/python3.10/site-packages/sem_map
+byte-compiling /home/fyp/llmbot2_ws/src/sem_map/install/sem_map/lib/python3.10/site-packages/sem_map/__init__.py to __init__.cpython-310.pyc
+byte-compiling /home/fyp/llmbot2_ws/src/sem_map/install/sem_map/lib/python3.10/site-packages/sem_map/LoadLSeg.py to LoadLSeg.cpython-310.pyc
+byte-compiling /home/fyp/llmbot2_ws/src/sem_map/install/sem_map/lib/python3.10/site-packages/sem_map/utils.py to utils.cpython-310.pyc
+byte-compiling /home/fyp/llmbot2_ws/src/sem_map/install/sem_map/lib/python3.10/site-packages/sem_map/update_map.py to update_map.cpython-310.pyc
+running install_data
+creating /home/fyp/llmbot2_ws/src/sem_map/install/sem_map/share/ament_index
+creating /home/fyp/llmbot2_ws/src/sem_map/install/sem_map/share/ament_index/resource_index
+creating /home/fyp/llmbot2_ws/src/sem_map/install/sem_map/share/ament_index/resource_index/packages
+copying resource/sem_map -> /home/fyp/llmbot2_ws/src/sem_map/install/sem_map/share/ament_index/resource_index/packages
+copying package.xml -> /home/fyp/llmbot2_ws/src/sem_map/install/sem_map/share/sem_map
+running install_egg_info
+Copying build/sem_map/sem_map.egg-info to /home/fyp/llmbot2_ws/src/sem_map/install/sem_map/lib/python3.10/site-packages/sem_map-0.0.0-py3.10.egg-info
+running install_scripts
+Installing update_map script to /home/fyp/llmbot2_ws/src/sem_map/install/sem_map/lib/sem_map
+writing list of installed files to '/home/fyp/llmbot2_ws/src/sem_map/build/sem_map/install.log'
