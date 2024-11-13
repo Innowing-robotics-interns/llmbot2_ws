@@ -24,15 +24,6 @@ class ImageSubscriber(Node):
         self.cv_image = rgb_image  # Store OpenCV image for later use
         self.pil_image = PILImage.fromarray(cv_image)
 
-def get_class_mean(num_classes, labels):
-    for i in range(num_classes):
-        # calculate mean x, y position of labels in class:
-        class_labels = np.where(labels == i)
-        x_mean = np.mean(class_labels[1])
-        y_mean = np.mean(class_labels[0])
-        print(f"Class {i} mean x: {x_mean}, mean y: {y_mean}")
-
-
 from skimage.measure import label
 def relabel_connected_components(class_image, n_classes=10):
     # Initialize an output image with the same shape
@@ -154,8 +145,8 @@ class PointCloudFeatureMap(Node):
         self.tf_buffer = tf2_ros.Buffer()
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
         self.camera_to_world = None
-        self.prev_time = self.time.get_clock().now().nanoseconds * 1e-9
-        self.curr_time = self.time.get_clock().now().nanoseconds * 1e-9
+        self.prev_time = self.get_clock().now().nanoseconds * 1e-9
+        self.curr_time = self.get_clock().now().nanoseconds * 1e-9
 
     def listen_tf(self):
         try:
@@ -193,8 +184,10 @@ class PointCloudFeatureMap(Node):
             return False
     
     def save_pcfm(self, file_name, update_interval=10):
-        self.curr_time = self.time.get_clock().now().nanoseconds * 1e-9
+        self.curr_time = self.get_clock().now().nanoseconds * 1e-9
         if self.curr_time - self.prev_time > update_interval:
             with open(file_name, 'wb') as f:
                 pickle.dump(self.pcfm, f)
             self.prev_time = self.curr_time
+            return True
+        return False

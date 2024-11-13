@@ -3,6 +3,8 @@ import rclpy
 import rclpy.logging
 from rclpy.executors import MultiThreadedExecutor
 import cv2
+import rclpy.logging
+import rclpy.logging
 import torch
 import time
 
@@ -17,8 +19,9 @@ from .map_utils import *
 import sys
     
 def main(args=None):
+    map_path = "/home/fyp/llmbot2_ws/src/sem_map/sem_map/pcfm.pkl"
+
     rclpy.init(args=args)
-    print("init")
     image_subscriber = ImageSubscriber()
     rscalc = RealSensePointCalculator()
     pcfm_main = PointCloudFeatureMap()
@@ -27,7 +30,6 @@ def main(args=None):
     executor.add_node(rscalc)
     executor.add_node(pcfm_main)
 
-    print("load test setting")
     # following line for testing, remember to remove
     pcfm_main.camera_to_world = TransformStamped()
     pcfm_main.camera_to_world.transform.translation.x = 0.0
@@ -45,9 +47,7 @@ def main(args=None):
         transforms.ToTensor()            # Convert to tensor
     ])
 
-    # Clear terminal
-    print("clear terminal")
-    print("\033[H\033[J", end="")
+    # print("\033[H\033[J", end="")
     try:
         while rclpy.ok():
             executor.spin_once(timeout_sec=0.1)
@@ -60,7 +60,10 @@ def main(args=None):
                 key_pixels = obtain_key_pixels(feat, cluster_image)
                 key_points = rscalc.obtain_key_points(key_pixels)
                 update_done = pcfm_main.update_pcfm(key_points, pcfm_threshold=1000, drop_range=0.5, drop_ratio=0.2)
-                pcfm_main.save_pcfm("/home/fyp/llmbot2/src/sem_map/sem_map/pcfm.pkl")
+                print(f"pcfm point count: {len(pcfm_main.pcfm)}")
+                map_saved = pcfm_main.save_pcfm(map_path)
+                if map_saved:
+                    print("Map saved at", pcfm_main.curr_time)
                 # convert to display type
                 cluster_image_normalized = cv2.normalize(cluster_image, None, 0, 255, cv2.NORM_MINMAX)
                 cluster_image_uint8 = cluster_image_normalized.astype(np.uint8)
@@ -69,10 +72,10 @@ def main(args=None):
             # time.sleep(0.1)
     except KeyboardInterrupt:
         print("KeyboardInterrupt caught")
-        sys.stdout.flush()
+        # sys.stdout.flush()
     finally:
         print("Shutting down")
-        sys.stdout.flush()
+        # sys.stdout.flush()
         cv2.destroyAllWindows()
         executor.shutdown()
         image_subscriber.destroy_node()

@@ -59,7 +59,6 @@ class FeatureLSeg(LSegModuleZS):
         self.net.logit_scale = self.net.logit_scale.to(x.device)
 
         image_features = self.net.scratch.head1(path_1)
-
         imshape = image_features.shape
         image_features = image_features.permute(0,2,3,1).reshape(-1, self.net.out_c)
 
@@ -67,13 +66,9 @@ class FeatureLSeg(LSegModuleZS):
         image_features = image_features / image_features.norm(dim=-1, keepdim=True)
         pixel_encoding = self.net.logit_scale * image_features.half() 
         pixel_encoding = pixel_encoding.float().view(imshape[0], imshape[2], imshape[3], -1).permute(0,3,1,2)
-        # print(pixel_encoding.shape)
         pixel_encoding = self.net.scratch.output_conv(pixel_encoding)
-        # print(pixel_encoding.shape)
         pixel_encoding = pixel_encoding.squeeze(0).permute(1, 2, 0)
-        # print(pixel_encoding.shape)
         pixel_encoding = pixel_encoding / pixel_encoding.norm(dim=-1, keepdim=True)
-        # print(pixel_encoding.shape)
             
         return pixel_encoding
     
