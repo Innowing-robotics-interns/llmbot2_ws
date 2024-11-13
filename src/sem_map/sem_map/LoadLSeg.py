@@ -83,7 +83,7 @@ class FeatureLSeg(LSegModuleZS):
         text_feature = text_feature / text_feature.norm(dim=-1, keepdim=True)
         return text_feature
 
-
+print("Loading model...")
 model_feat = FeatureLSeg.load_from_checkpoint(
     checkpoint_path=args.weights,
     data_path=args.datapath,
@@ -115,6 +115,7 @@ model_feat = FeatureLSeg.load_from_checkpoint(
     finetune_mode=False,
     activation=args.activation,
 )
+print("Model loaded.")
 
 model = model_feat.eval().cuda()
 

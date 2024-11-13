@@ -139,17 +139,62 @@ class RealSensePointCalculator(Node):
             key_points.append((feat_mean, point_mean))
         return key_points
 
+import tf2_ros
+import rclpy
+from geometry_msgs.msg import TransformStamped
+import tf_transformations
+import pickle
+class PointCloudFeatureMap(Node):
+    def __init__(self, round_to=0.2, camera_frame='camera_link', world_frame='map'):
+        super().__init__('point_cloud_feature_map')
+        self.round_to = round_to
+        self.camera_frame = camera_frame
+        self.world_frame = world_frame
+        self.pcfm = {}
+        self.tf_buffer = tf2_ros.Buffer()
+        self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
+        self.camera_to_world = None
+        self.prev_time = self.time.get_clock().now().nanoseconds * 1e-9
+        self.curr_time = self.time.get_clock().now().nanoseconds * 1e-9
 
-# point cloud feature hash map
-pcfm = {}
-def update_pcfm(key_points, camera_pose=[], round_to=0.1):
-    '''
-    Update point cloud feature hash map with key points
-    camera_pose: ros tf
-    '''
-    for feat_mean, point_mean in key_points:
-        point_mean = point_mean // round_to * round_to
-        if tuple(point_mean) in pcfm:
-            pcfm[tuple(point_mean)] = feat_mean
+    def listen_tf(self):
+        try:
+            self.camera_to_world = self.tf_buffer.lookup_transform(self.camera_frame, self.world_frame, rclpy.time.Time())
+        except (tf2_ros.LookupException, tf2_ros.ConnectivityException, tf2_ros.ExtrapolationException):
+            self.get_logger().info('Cannot find camera to world transform')
+            return False
+        return True    
+
+    def update_pcfm(self, key_points, pcfm_threshold=4000, drop_range=0.5, drop_ratio=0.2):
+        if self.camera_to_world is not None:
+            if len(self.pcfm) > pcfm_threshold:
+                length = len(self.pcfm)
+                key_i = np.arange(int(length*drop_range))
+                drop_keys_i = np.random.choice(key_i, int(length * drop_ratio), replace=False)
+                keys = list(self.pcfm.keys())
+                for key_index in drop_keys_i:
+                    self.pcfm.pop(keys[key_index])
+
+            translation = np.array([self.camera_to_world.transform.translation.x,
+                                    self.camera_to_world.transform.translation.y,
+                                    self.camera_to_world.transform.translation.z])
+            rotation = [self.camera_to_world.transform.rotation.x,
+                        self.camera_to_world.transform.rotation.y,
+                        self.camera_to_world.transform.rotation.z,
+                        self.camera_to_world.transform.rotation.w]
+            rotation_matrix = tf_transformations.quaternion_matrix(rotation)[:3, :3]
+
+            for feat_mean, point_mean in key_points:
+                point_mean = np.dot(rotation_matrix, point_mean) + translation
+                point_mean = point_mean // self.round_to * self.round_to
+                self.pcfm[tuple(point_mean)] = feat_mean
+            return True
         else:
-            pcfm[tuple(point_mean)] = feat_mean
+            return False
+    
+    def save_pcfm(self, file_name, update_interval=10):
+        self.curr_time = self.time.get_clock().now().nanoseconds * 1e-9
+        if self.curr_time - self.prev_time > update_interval:
+            with open(file_name, 'wb') as f:
+                pickle.dump(self.pcfm, f)
+            self.prev_time = self.curr_time
