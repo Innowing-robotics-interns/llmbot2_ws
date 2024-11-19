@@ -28,17 +28,6 @@ def main(args=None):
     pcfm_main = PointCloudFeatureMap()
     executor = MultiThreadedExecutor()
     executor.add_node(pcfm_main)
-
-    # following line for testing, remember to remove
-    pcfm_main.camera_to_world = TransformStamped()
-    pcfm_main.camera_to_world.transform.translation.x = 0.0
-    pcfm_main.camera_to_world.transform.translation.y = 0.0
-    pcfm_main.camera_to_world.transform.translation.z = 0.0
-    pcfm_main.camera_to_world.transform.rotation.x = 0.0
-    pcfm_main.camera_to_world.transform.rotation.y = 0.0
-    pcfm_main.camera_to_world.transform.rotation.z = 0.0
-    pcfm_main.camera_to_world.transform.rotation.w = 1.0
-    print("camera_to_world is None", pcfm_main.camera_to_world is None)
     
     transform = transforms.Compose([
         transforms.Resize(480),           # Resize the shorter side to 480 while maintaining aspect ratio
@@ -53,22 +42,22 @@ def main(args=None):
         while rclpy.ok():
             executor.spin_once(timeout_sec=0.1)
             # pcfm_main.listen_tf()
-                image_tensor = transform(image_subscriber.pil_image)
-                with torch.no_grad():
-                    feat = model(image_tensor.unsqueeze(0).cuda())
-                cluster_image = PCA_and_Cluster(feat)
-                key_pixels = obtain_key_pixels(feat, cluster_image)
-                key_points = rscalc.obtain_key_points(key_pixels)
-                update_done = pcfm_main.update_pcfm(key_points, pcfm_threshold=1000, drop_range=0.5, drop_ratio=0.2)
-                print(f"pcfm point count: {len(pcfm_main.pcfm)}")
-                map_saved = pcfm_main.save_pcfm(map_path)
-                if map_saved:
-                    print("Map saved at", pcfm_main.curr_time)
-                # convert to display type
-                cluster_image_normalized = cv2.normalize(cluster_image, None, 0, 255, cv2.NORM_MINMAX)
-                cluster_image_uint8 = cluster_image_normalized.astype(np.uint8)
-                cv2.imshow('Cluster Image', cluster_image_uint8)
-                cv2.waitKey(1)
+            image_tensor = transform(image_subscriber.pil_image)
+            with torch.no_grad():
+                feat = model(image_tensor.unsqueeze(0).cuda())
+            cluster_image = PCA_and_Cluster(feat)
+            key_pixels = obtain_key_pixels(feat, cluster_image)
+            key_points = rscalc.obtain_key_points(key_pixels)
+            update_done = pcfm_main.update_pcfm(key_points, pcfm_threshold=1000, drop_range=0.5, drop_ratio=0.2)
+            print(f"pcfm point count: {len(pcfm_main.pcfm)}")
+            map_saved = pcfm_main.save_pcfm(map_path)
+            if map_saved:
+                print("Map saved at", pcfm_main.curr_time)
+            # convert to display type
+            cluster_image_normalized = cv2.normalize(cluster_image, None, 0, 255, cv2.NORM_MINMAX)
+            cluster_image_uint8 = cluster_image_normalized.astype(np.uint8)
+            cv2.imshow('Cluster Image', cluster_image_uint8)
+            cv2.waitKey(1)
             # time.sleep(0.1)
     except KeyboardInterrupt:
         print("KeyboardInterrupt caught")
@@ -76,6 +65,7 @@ def main(args=None):
     finally:
         print("Shutting down")
         # sys.stdout.flush()
+        socket_receiver.server_socket.close()
         cv2.destroyAllWindows()
         executor.shutdown()
         pcfm_main.destroy_node()

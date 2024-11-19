@@ -11,13 +11,14 @@ class SocketReceiver():
     def __init__(self):
         self.server_socket = None
         self.conn, self.addr = None, None
+        self.tf = None
         self.depth = None
         self.color = None
         self.pil_image = None
 
     def socket_connect(self):
         self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.server_socket.bind(('0.0.0.0', 5000))
+        self.server_socket.bind(('0.0.0.0', 5001))
         self.server_socket.listen(1)
         self.conn, self.addr = self.server_socket.accept()
     
@@ -25,12 +26,22 @@ class SocketReceiver():
         print(f"Sending handshake message:{handshake_message}")
         self.conn.sendall(handshake_message.encode())
     
+    def get_trans(self):
+        data_size = struct.unpack('<L', self.conn.recv(4))[0]
+        if data_size == 0:
+            print("Received empty transformation data")
+        else:
+            # obtain 7 float
+            data = self.conn.recv(data_size)
+            self.tf = np.array(struct.unpack('7f', data))
+            print("Received transformation data")
+    
     def get_color(self):
         print("Waiting for image data...")
         data_size = struct.unpack('<L', self.conn.recv(4))[0]
         data = b''
         if data_size == 0:
-            self.get_logger().info("Received empty color data")
+            print("Received empty color data")
             pass
         else:
             while len(data) < data_size:
@@ -45,13 +56,13 @@ class SocketReceiver():
                 self.pil_image = PILImage.fromarray(self.color)
             else:
                 raise Exception("Color image size does not match")
-            self.get_logger().info("Received color image")
+            print("Received color image")
 
     def get_depth(self):
         data_size = struct.unpack('<L', self.conn.recv(4))[0]
         data = b''
         if data_size == 0:
-            self.get_logger().info("Received empty depth data")
+            print("Received empty depth data")
             pass
         else:
             # Receive the image data
@@ -66,7 +77,7 @@ class SocketReceiver():
                 self.depth = cv2.imdecode(np_array, cv2.IMREAD_UNCHANGED)
             else:
                 raise Exception("Depth image size does not match")
-            self.get_logger().info("Received depth image")
+            print("Received depth image")
 
 from skimage.measure import label
 def relabel_connected_components(class_image, n_classes=10):
@@ -166,28 +177,14 @@ import rclpy
 from geometry_msgs.msg import TransformStamped
 import tf_transformations
 import pickle
-class PointCloudFeatureMap(Node):
-    def __init__(self, round_to=0.2, camera_frame='camera_link', world_frame='map'):
-        super().__init__('point_cloud_feature_map')
+class PointCloudFeatureMap():
+    def __init__(self, round_to=0.2):
         self.round_to = round_to
-        self.camera_frame = camera_frame
-        self.world_frame = world_frame
         self.pcfm = {}
-        self.tf_buffer = tf2_ros.Buffer()
-        self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
-        self.camera_to_world = None
         self.prev_time = self.get_clock().now().nanoseconds * 1e-9
         self.curr_time = self.get_clock().now().nanoseconds * 1e-9
 
-    def listen_tf(self):
-        try:
-            self.camera_to_world = self.tf_buffer.lookup_transform(self.camera_frame, self.world_frame, rclpy.time.Time())
-        except (tf2_ros.LookupException, tf2_ros.ConnectivityException, tf2_ros.ExtrapolationException):
-            self.get_logger().info('Cannot find camera to world transform')
-            return False
-        return True    
-
-    def update_pcfm(self, key_points, pcfm_threshold=4000, drop_range=0.5, drop_ratio=0.2):
+    def update_pcfm(self, key_points, pcfm_threshold=4000, drop_range=0.5, drop_ratio=0.2, tf_array=None):
         if self.camera_to_world is not None:
             if len(self.pcfm) > pcfm_threshold:
                 length = len(self.pcfm)
@@ -197,13 +194,8 @@ class PointCloudFeatureMap(Node):
                 for key_index in drop_keys_i:
                     self.pcfm.pop(keys[key_index])
 
-            translation = np.array([self.camera_to_world.transform.translation.x,
-                                    self.camera_to_world.transform.translation.y,
-                                    self.camera_to_world.transform.translation.z])
-            rotation = [self.camera_to_world.transform.rotation.x,
-                        self.camera_to_world.transform.rotation.y,
-                        self.camera_to_world.transform.rotation.z,
-                        self.camera_to_world.transform.rotation.w]
+            translation = tf_array[:3]
+            rotation = tf_array[3:]
             rotation_matrix = tf_transformations.quaternion_matrix(rotation)[:3, :3]
 
             for feat_mean, point_mean in key_points:

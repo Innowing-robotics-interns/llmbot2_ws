@@ -6,11 +6,15 @@ from cv_bridge import CvBridge
 import cv2
 import struct
 import time
-from sensor_msgs.msg import CameraInfo
-import pyrealsense2 as rs
+
+import tf2_ros
+import rclpy
+from geometry_msgs.msg import TransformStamped
+import tf_transformations
+import numpy as np
 
 class ImageSubscriber(Node):
-    def __init__(self):
+    def __init__(self, camera_frame="camera_link", world_frame="map"):
         super().__init__('image_subscriber_socket_sender')
 
         self.image_sub = self.create_subscription(
@@ -29,9 +33,38 @@ class ImageSubscriber(Node):
         self.depth_image = None
         self.socket_setup()
 
+        self.camera_frame = camera_frame
+        self.world_frame = world_frame
+        self.tf_buffer = tf2_ros.Buffer()
+        self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
+        self.camera_to_world = None
+
     def socket_setup(self):
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.sock.connect(('zsc', 5000))  # Replace with your local machine's IP
+        self.sock.connect(('zsc', 5001))  # Replace with your local machine's IP
+
+    def listen_tf(self):
+        try:
+            self.camera_to_world = self.tf_buffer.lookup_transform(self.camera_frame, self.world_frame, rclpy.time.Time())
+        except (tf2_ros.LookupException, tf2_ros.ConnectivityException, tf2_ros.ExtrapolationException):
+            self.get_logger().info('Cannot find camera to world transform')
+            return False
+        return True    
+    
+    def send_transform(self):
+        if self.camera_to_world is not None:
+            translation = np.array([self.camera_to_world.transform.translation.x,
+                                    self.camera_to_world.transform.translation.y,
+                                    self.camera_to_world.transform.translation.z])
+            rotation = [self.camera_to_world.transform.rotation.x,
+                        self.camera_to_world.transform.rotation.y,
+                        self.camera_to_world.transform.rotation.z,
+                        self.camera_to_world.transform.rotation.w]
+            self.get_logger().info(f"Sending transform")
+            self.sock.sendall(struct.pack('<L', 1) + struct.pack('<3f', *translation) + struct.pack('<4f', *rotation))
+        else:
+            self.get_logger().info("Sending empty transform")
+            self.sock.sendall(struct.pack('<L', 0))
 
     def image_callback(self, msg):
         self.color_image = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
@@ -86,6 +119,9 @@ def main(args=None):
     try:
         while rclpy.ok():
             rclpy.spin_once(image_subscriber, timeout_sec=6.0)
+            image_subscriber.listen_tf()
+            image_subscriber.wait_handshake("trans")
+            image_subscriber.send_transform()
             image_subscriber.wait_handshake("color")
             image_subscriber.send_color_image()
             image_subscriber.wait_handshake("depth")
