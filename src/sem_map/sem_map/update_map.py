@@ -21,13 +21,12 @@ import sys
 def main(args=None):
     map_path = "/home/fyp/llmbot2_ws/src/sem_map/sem_map/pcfm.pkl"
 
-    rclpy.init(args=args)
-    image_subscriber = ImageSubscriber()
     rscalc = RealSensePointCalculator()
+    socket_receiver = SocketReceiver()
+
+    rclpy.init(args=args)
     pcfm_main = PointCloudFeatureMap()
     executor = MultiThreadedExecutor()
-    executor.add_node(image_subscriber)
-    executor.add_node(rscalc)
     executor.add_node(pcfm_main)
 
     # following line for testing, remember to remove
@@ -49,10 +48,11 @@ def main(args=None):
 
     # print("\033[H\033[J", end="")
     try:
+        socket_receiver.socket_connect()
+
         while rclpy.ok():
             executor.spin_once(timeout_sec=0.1)
             # pcfm_main.listen_tf()
-            if image_subscriber.pil_image is not None and rscalc.info_received():
                 image_tensor = transform(image_subscriber.pil_image)
                 with torch.no_grad():
                     feat = model(image_tensor.unsqueeze(0).cuda())
@@ -78,8 +78,6 @@ def main(args=None):
         # sys.stdout.flush()
         cv2.destroyAllWindows()
         executor.shutdown()
-        image_subscriber.destroy_node()
-        rscalc.destroy_node()
         pcfm_main.destroy_node()
         rclpy.shutdown()
 

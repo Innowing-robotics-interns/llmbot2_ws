@@ -4,25 +4,69 @@ from cv_bridge import CvBridge
 import cv2
 from PIL import Image as PILImage, PngImagePlugin
 import numpy as np
+import socket
+import struct
 
-class ImageSubscriber(Node):
+class SocketReceiver():
     def __init__(self):
-        super().__init__('image_subscriber')
-        self.subscription = self.create_subscription(
-            Image,
-            '/camera/camera/color/image_raw',  # Change this to your image topic
-            self.image_callback,
-            10)
-        self.subscription  # prevent unused variable warning
-        self.bridge = CvBridge()
+        self.server_socket = None
+        self.conn, self.addr = None, None
+        self.depth = None
+        self.color = None
         self.pil_image = None
-        self.cv_image = None
 
-    def image_callback(self, msg):
-        cv_image = self.bridge.imgmsg_to_cv2(msg, desired_encoding='passthrough')
-        rgb_image = cv2.cvtColor(cv_image,cv2.COLOR_BGR2RGB)
-        self.cv_image = rgb_image  # Store OpenCV image for later use
-        self.pil_image = PILImage.fromarray(cv_image)
+    def socket_connect(self):
+        self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.server_socket.bind(('0.0.0.0', 5000))
+        self.server_socket.listen(1)
+        self.conn, self.addr = self.server_socket.accept()
+    
+    def send_handshake(self, handshake_message):
+        print(f"Sending handshake message:{handshake_message}")
+        self.conn.sendall(handshake_message.encode())
+    
+    def get_color(self):
+        print("Waiting for image data...")
+        data_size = struct.unpack('<L', self.conn.recv(4))[0]
+        data = b''
+        if data_size == 0:
+            self.get_logger().info("Received empty color data")
+            pass
+        else:
+            while len(data) < data_size:
+                packet = self.conn.recv(4096)
+                if not packet:
+                    break
+                data += packet
+            if len(data) == data_size:
+                np_array = np.frombuffer(data, np.uint8)
+                color_img = cv2.imdecode(np_array, cv2.IMREAD_COLOR)
+                self.color = cv2.cvtColor(color_img, cv2.COLOR_BGR2RGB)
+                self.pil_image = PILImage.fromarray(self.color)
+            else:
+                raise Exception("Color image size does not match")
+            self.get_logger().info("Received color image")
+
+    def get_depth(self):
+        data_size = struct.unpack('<L', self.conn.recv(4))[0]
+        data = b''
+        if data_size == 0:
+            self.get_logger().info("Received empty depth data")
+            pass
+        else:
+            # Receive the image data
+            while len(data) < data_size:
+                packet = self.conn.recv(4096)
+                if not packet:
+                    break
+                data += packet
+
+            if len(data) == data_size:
+                np_array = np.frombuffer(data, np.uint8)
+                self.depth = cv2.imdecode(np_array, cv2.IMREAD_UNCHANGED)
+            else:
+                raise Exception("Depth image size does not match")
+            self.get_logger().info("Received depth image")
 
 from skimage.measure import label
 def relabel_connected_components(class_image, n_classes=10):
@@ -70,50 +114,37 @@ def obtain_key_pixels(feat, clustered_image, n_pixels=30, rule_out_threshold=500
 
 from sensor_msgs.msg import CameraInfo
 import pyrealsense2 as rs
-class RealSensePointCalculator(Node):
-    def __init__(self, cam_frame_size = [480, 640], focal_scaler = 1.0, depth_scaler = 1.0, image_frame_size = [480, 480]):
-        super().__init__('realsense_point_calculator')
+class RealSensePointCalculator():
+    def __init__(self, cam_frame_size = [480, 640], image_frame_size = [480, 480]):
         self.bridge = CvBridge()
-        self.depth_sub = self.create_subscription(Image, '/camera/camera/aligned_depth_to_color/image_raw', self.depth_callback, 10)
-        self.info_sub = self.create_subscription(CameraInfo, '/camera/camera/depth/camera_info', self.info_callback, 10)
         self.depth_image = None
-        self.depth_time = None
         self.intrinsics = None
+        self.intr_set()
         self.cam_frame_size = cam_frame_size
-        self.focal_scaler = focal_scaler
-        self.depth_scaler = depth_scaler
         self.x_offset = self.cam_frame_size[1] // 2 - image_frame_size[1] // 2
         self.y_offset = self.cam_frame_size[0] // 2 - image_frame_size[0] // 2
+    
+    def update_depth(self, depth_img):
+        self.depth_image = depth_img
 
-    def depth_callback(self, msg):
-        self.depth_image = self.bridge.imgmsg_to_cv2(msg, desired_encoding='passthrough')
-        self.depth_time = self.get_clock().now().nanoseconds * 1e-9
-
-    def info_callback(self, msg):
+    def intr_set(self):
         if self.intrinsics is None:
             self.intrinsics = rs.intrinsics()
-            self.intrinsics.width = msg.width
-            self.intrinsics.height = msg.height
-            self.intrinsics.ppx = msg.k[2]
-            self.intrinsics.ppy = msg.k[5]
-            self.intrinsics.fx = msg.k[0]/self.focal_scaler
-            self.intrinsics.fy = msg.k[4]/self.focal_scaler
+            self.intrinsics.width = 848
+            self.intrinsics.height = 480
+            self.intrinsics.ppx = 430.2650451660156
+            self.intrinsics.ppy = 238.0896759033203
+            self.intrinsics.fx = 425.21417236328125
+            self.intrinsics.fy = 425.21417236328125
             self.intrinsics.model = rs.distortion.none
-            self.intrinsics.coeffs = [i for i in msg.d]
-            self.destroy_subscription(self.info_sub)
-
-    def info_received(self, del_time=0.5):
-        if self.depth_image is None or self.intrinsics is None or self.get_clock().now().nanoseconds * 1e-9 - self.depth_time > del_time:
-            return False
-        else:
-            return True
+            self.intrinsics.coeffs = [0.0 for i in range(5)]
 
     def calculate_point(self, pixel_y, pixel_x):
-        pixel_x += self.x_offset
-        pixel_y += self.y_offset
+        depth_pixel_x = pixel_x + self.x_offset
+        depth_pixel_y = pixel_y + self.y_offset
         
-        depth_pixel_y = int((pixel_y - self.cam_frame_size[0] // 2)/self.depth_scaler + self.cam_frame_size[0] // 2)
-        depth_pixel_x = int((pixel_x - self.cam_frame_size[1] // 2)/self.depth_scaler + self.cam_frame_size[1] // 2)
+        # depth_pixel_y = int((pixel_y - self.cam_frame_size[0] // 2) + self.cam_frame_size[0] // 2)
+        # depth_pixel_x = int((pixel_x - self.cam_frame_size[1] // 2) + self.cam_frame_size[1] // 2)
         depth = self.depth_image[depth_pixel_y, depth_pixel_x] * 0.001  # Convert from mm to meters
         point = rs.rs2_deproject_pixel_to_point(self.intrinsics, [pixel_x, pixel_y], depth)
         point = [point[2], -point[0], -point[1]]
