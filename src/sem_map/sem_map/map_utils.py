@@ -31,8 +31,10 @@ class SocketReceiver():
     def get_trans(self):
         data_valid = struct.unpack('<L', self.conn.recv(4))[0]
         if data_valid == 0:
-            data = self.conn.recv(28)
-            self.tf = np.array(struct.unpack('7f', data))
+            data = self.conn.recv(12)
+            self.translation = np.array(struct.unpack('<3f', data))
+            data = self.conn.recv(16)
+            self.rotation = np.array(struct.unpack('<4f', data))
             print("Received empty transformation data")
         else:
             # obtain 7 float
@@ -176,10 +178,10 @@ class RealSensePointCalculator():
 
     def calculate_point(self, pixel_y, pixel_x):
         # Deprojection of depth camera pixel to 3D point
-        # depth_pixel_y = pixel_y + self.y_offset
-        # depth_pixel_x = pixel_x + self.x_offset
-        depth_pixel_y = pixel_y
-        depth_pixel_x = pixel_x
+        depth_pixel_y = pixel_y + self.y_offset
+        depth_pixel_x = pixel_x + self.x_offset
+        # depth_pixel_y = pixel_y
+        # depth_pixel_x = pixel_x
         
         # depth_pixel_y = int((pixel_y - self.cam_frame_size[0] // 2) + self.cam_frame_size[0] // 2)
         # depth_pixel_x = int((pixel_x - self.cam_frame_size[1] // 2) + self.cam_frame_size[1] // 2)
