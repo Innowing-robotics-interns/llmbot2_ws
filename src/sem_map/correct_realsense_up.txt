@@ -1,0 +1,34 @@
+# Camera used is D435i
+# the following is a correct start up of realsense camera
+# if it didn't start like this, try to set parameters that initialize it to the following
+fyp2@fyp2-MS-7E06:~/llmbot/src/sem_map$ ./realsense_up.sh 
+[INFO] [launch]: All log files can be found below /home/fyp2/.ros/log/2024-11-20-18-16-13-509901-fyp2-MS-7E06-3163069
+[INFO] [launch]: Default logging verbosity is set to INFO
+[INFO] [realsense2_camera_node-1]: process started with pid [3163070]
+[realsense2_camera_node-1] [INFO] [1732097773.663377352] [camera.camera]: RealSense ROS v4.55.1
+[realsense2_camera_node-1] [INFO] [1732097773.663437864] [camera.camera]: Built with LibRealSense v2.55.1
+[realsense2_camera_node-1] [INFO] [1732097773.663443075] [camera.camera]: Running with LibRealSense v2.55.1
+[realsense2_camera_node-1] [INFO] [1732097773.677776894] [camera.camera]: Device with serial number 231122070556 was found.
+[realsense2_camera_node-1] 
+[realsense2_camera_node-1] [INFO] [1732097773.677822223] [camera.camera]: Device with physical ID /sys/devices/pci0000:00/0000:00:14.0/usb2/2-2/2-2:1.0/video4linux/video0 was found.
+[realsense2_camera_node-1] [INFO] [1732097773.677826164] [camera.camera]: Device with name Intel RealSense D435 was found.
+[realsense2_camera_node-1] [INFO] [1732097773.677921893] [camera.camera]: Device with port number 2-2 was found.
+[realsense2_camera_node-1] [INFO] [1732097773.677926367] [camera.camera]: Device USB type: 3.2
+[realsense2_camera_node-1] [INFO] [1732097773.677956083] [camera.camera]: getParameters...
+[realsense2_camera_node-1] [INFO] [1732097773.678057869] [camera.camera]: JSON file is not provided
+[realsense2_camera_node-1] [INFO] [1732097773.678062615] [camera.camera]: Device Name: Intel RealSense D435
+[realsense2_camera_node-1] [INFO] [1732097773.678065996] [camera.camera]: Device Serial No: 231122070556
+[realsense2_camera_node-1] [INFO] [1732097773.678068839] [camera.camera]: Device physical port: /sys/devices/pci0000:00/0000:00:14.0/usb2/2-2/2-2:1.0/video4linux/video0
+[realsense2_camera_node-1] [INFO] [1732097773.678072088] [camera.camera]: Device FW version: 5.15.1
+[realsense2_camera_node-1] [INFO] [1732097773.678074844] [camera.camera]: Device Product ID: 0x0B07
+[realsense2_camera_node-1] [INFO] [1732097773.678077498] [camera.camera]: Sync Mode: On
+[realsense2_camera_node-1] [INFO] [1732097773.758780179] [camera.camera]: Set ROS param depth_module.depth_profile to default: 848x480x30
+[realsense2_camera_node-1] [INFO] [1732097773.758983190] [camera.camera]: Set ROS param depth_module.infra_profile to default: 848x480x30
+[realsense2_camera_node-1] [INFO] [1732097773.761568267] [camera.camera]: Set ROS param rgb_camera.color_profile to default: 640x480x30
+[realsense2_camera_node-1] [INFO] [1732097773.763424452] [camera.camera]: Stopping Sensor: Depth Module
+[realsense2_camera_node-1] [INFO] [1732097773.763516515] [camera.camera]: Stopping Sensor: RGB Camera
+[realsense2_camera_node-1] [INFO] [1732097773.764982710] [camera.camera]: Starting Sensor: Depth Module
+[realsense2_camera_node-1] [INFO] [1732097773.766289428] [camera.camera]: Open profile: stream_type: Depth(0), Format: Z16, Width: 848, Height: 480, FPS: 30
+[realsense2_camera_node-1] [INFO] [1732097773.780331703] [camera.camera]: Starting Sensor: RGB Camera
+[realsense2_camera_node-1] [INFO] [1732097773.784668056] [camera.camera]: Open profile: stream_type: Color(0), Format: RGB8, Width: 640, Height: 480, FPS: 30
+[realsense2_camera_node-1] [INFO] [1732097773.785516424] [camera.camera]: RealSense Node Is Up!

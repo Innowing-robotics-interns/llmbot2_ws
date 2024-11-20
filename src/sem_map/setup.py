@@ -27,6 +27,7 @@ setup(
         'console_scripts': [
                 'update_map = sem_map.update_map:main',
                 'image_socket_send = sem_map.image_socket_send:main',
+                'query_object = sem_map.query_object:main',
         ],
     },
 )

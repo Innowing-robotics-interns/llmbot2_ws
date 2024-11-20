@@ -236,23 +236,45 @@ class PointCloudFeatureMap():
     def save_pcfm(self, file_name):
         with open(file_name, 'wb') as f:
             pickle.dump(self.pcfm, f)
-        self.prev_time = self.curr_time
 
 from sensor_msgs.msg import PointCloud
 from geometry_msgs.msg import Point32
 class PointCloudManager(Node):
-    def __init__(self):
+    def __init__(self, topic_name='/point_cloud'):
         super().__init__('point_cloud_manager')
-        self.publisher = self.create_publisher(PointCloud, '/point_cloud', 10)
+        self.publisher = self.create_publisher(PointCloud, topic_name, 10)
     
-    def publish_point_cloud(self, pcfm_map):
+    def publish_point_cloud(self, pcfm_map_keys):
         point_cloud_msg = PointCloud()
         point_cloud_msg.header.stamp = self.get_clock().now().to_msg()
         point_cloud_msg.header.frame_id = 'map'
-        for point in pcfm_map.keys():
+        for point in pcfm_map_keys:
             msg_point = Point32()
             msg_point.x = point[0]
             msg_point.y = point[1]
             msg_point.z = point[2]
             point_cloud_msg.points.append(msg_point)
         self.publisher.publish(point_cloud_msg)
+
+
+
+###### Testing Code ######
+###| Test Display \###
+# if socket_receiver.color is not None and socket_receiver.color.size > 0:
+#     rclpy.logging.get_logger('update_map').info(str(socket_receiver.color.shape))
+#     cv2.imshow('Color Image', cv2.cvtColor(socket_receiver.color, cv2.COLOR_RGB2BGR))
+#     cv2.waitKey(1)
+# else:
+#     rclpy.logging.get_logger('update_map').info("Received empty or invalid image.")
+###\ Test Display |###
+
+# display depth image
+# cv2.imshow('Depth Image', socket_receiver.depth)
+# cv2.waitKey(1)
+
+# point_dict = {}
+# for x in range(640):
+#     for y in range(480):
+#         if x % 10 == 0 and y % 10 == 0:
+#             point_dict[tuple(rscalc.calculate_point(y, x))] = socket_receiver.depth[y, x]
+# pc_manager.publish_point_cloud(point_dict)
