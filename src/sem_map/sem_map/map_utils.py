@@ -11,14 +11,16 @@ class SocketReceiver():
     def __init__(self):
         self.server_socket = None
         self.conn, self.addr = None, None
-        self.tf = None
+        self.translation = None
+        self.rotation = None
         self.depth = None
         self.color = None
         self.pil_image = None
+        self.info = None
 
-    def socket_connect(self):
+    def socket_connect(self, port_num=5001):
         self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.server_socket.bind(('0.0.0.0', 5001))
+        self.server_socket.bind(('0.0.0.0', port_num))
         self.server_socket.listen(1)
         self.conn, self.addr = self.server_socket.accept()
     
@@ -27,13 +29,17 @@ class SocketReceiver():
         self.conn.sendall(handshake_message.encode())
     
     def get_trans(self):
-        data_size = struct.unpack('<L', self.conn.recv(4))[0]
-        if data_size == 0:
+        data_valid = struct.unpack('<L', self.conn.recv(4))[0]
+        if data_valid == 0:
+            data = self.conn.recv(28)
+            self.tf = np.array(struct.unpack('7f', data))
             print("Received empty transformation data")
         else:
             # obtain 7 float
-            data = self.conn.recv(data_size)
-            self.tf = np.array(struct.unpack('7f', data))
+            data = self.conn.recv(12)
+            self.translation = np.array(struct.unpack('<3f', data))
+            data = self.conn.recv(16)
+            self.rotation = np.array(struct.unpack('<4f', data))
             print("Received transformation data")
     
     def get_color(self):
@@ -78,6 +84,16 @@ class SocketReceiver():
             else:
                 raise Exception("Depth image size does not match")
             print("Received depth image")
+    
+    def get_info(self):
+        data_valid = struct.unpack('<L', self.conn.recv(4))[0]
+        if data_valid == 0:
+            print("Received empty info data")
+        else:
+            data = self.conn.recv(40)
+            self.info = np.array(struct.unpack('<2I4d', data))
+            print("Received info data")
+
 
 from skimage.measure import label
 def relabel_connected_components(class_image, n_classes=10):
@@ -120,60 +136,74 @@ def obtain_key_pixels(feat, clustered_image, n_pixels=30, rule_out_threshold=500
         if len(class_pixel[0]) < rule_out_threshold:
             continue
         indices = np.random.choice(len(class_pixel[0]), n_pixels, replace=False)
+        # key_pixels stores list of (feat_mean, [[pixel_y ...], [pixel_x...]])
         key_pixels.append((feat_mean, [class_pixel[0][indices], class_pixel[1][indices]]))
     return key_pixels
 
 from sensor_msgs.msg import CameraInfo
 import pyrealsense2 as rs
 class RealSensePointCalculator():
-    def __init__(self, cam_frame_size = [480, 640], image_frame_size = [480, 480]):
+    def __init__(self, depth_frame_size = [480, 640], image_frame_size = [480, 480]):
         self.bridge = CvBridge()
         self.depth_image = None
-        self.intrinsics = None
+        self.intrinsics = rs.intrinsics()
+        self.intrinsics.model = rs.distortion.none
+        self.intrinsics.coeffs = [0.0 for i in range(5)]
         self.intr_set()
-        self.cam_frame_size = cam_frame_size
-        self.x_offset = self.cam_frame_size[1] // 2 - image_frame_size[1] // 2
-        self.y_offset = self.cam_frame_size[0] // 2 - image_frame_size[0] // 2
+        self.depth_frame_size = depth_frame_size
+        self.x_offset = self.depth_frame_size[1] // 2 - image_frame_size[1] // 2
+        self.y_offset = self.depth_frame_size[0] // 2 - image_frame_size[0] // 2
     
     def update_depth(self, depth_img):
         self.depth_image = depth_img
+    
+    def update_intr(self, camera_info):
+        self.intrinsics.width = int(camera_info[0])
+        self.intrinsics.height = int(camera_info[1])
+        self.intrinsics.ppx = camera_info[2]
+        self.intrinsics.ppy = camera_info[3]
+        self.intrinsics.fx = camera_info[4]
+        self.intrinsics.fy = camera_info[5]
 
     def intr_set(self):
-        if self.intrinsics is None:
-            self.intrinsics = rs.intrinsics()
-            self.intrinsics.width = 848
-            self.intrinsics.height = 480
-            self.intrinsics.ppx = 430.2650451660156
-            self.intrinsics.ppy = 238.0896759033203
-            self.intrinsics.fx = 425.21417236328125
-            self.intrinsics.fy = 425.21417236328125
-            self.intrinsics.model = rs.distortion.none
-            self.intrinsics.coeffs = [0.0 for i in range(5)]
+        # set the intrinsics of the D435i camera (obtain them from "ros2 topic echo /camera/camera/camera_info")
+        self.intrinsics.width = 848
+        self.intrinsics.height = 480
+        self.intrinsics.ppx = 430.2650451660156
+        self.intrinsics.ppy = 238.0896759033203
+        self.intrinsics.fx = 425.21417236328125
+        self.intrinsics.fy = 425.21417236328125
 
     def calculate_point(self, pixel_y, pixel_x):
-        depth_pixel_x = pixel_x + self.x_offset
-        depth_pixel_y = pixel_y + self.y_offset
+        # Deprojection of depth camera pixel to 3D point
+        # depth_pixel_y = pixel_y + self.y_offset
+        # depth_pixel_x = pixel_x + self.x_offset
+        depth_pixel_y = pixel_y
+        depth_pixel_x = pixel_x
         
         # depth_pixel_y = int((pixel_y - self.cam_frame_size[0] // 2) + self.cam_frame_size[0] // 2)
         # depth_pixel_x = int((pixel_x - self.cam_frame_size[1] // 2) + self.cam_frame_size[1] // 2)
         depth = self.depth_image[depth_pixel_y, depth_pixel_x] * 0.001  # Convert from mm to meters
         point = rs.rs2_deproject_pixel_to_point(self.intrinsics, [pixel_x, pixel_y], depth)
         point = [point[2], -point[0], -point[1]]
+        # point = [point[2], point[1], -point[0]]
+
         return point
     
     def obtain_key_points(self, key_pixels):
+        # Convert the key pixels to key points by
+        # deprojecting the pixes to 3D point cloud using
+        # depth of D435i camera
         key_points = []
         for feat_mean, pixels in key_pixels:
             points = []
             for i in range(len(pixels[0])):
-                point = self.calculate_point(float(pixels[0][i]), float(pixels[1][i]))
+                point = self.calculate_point(int(pixels[0][i]), int(pixels[1][i]))
                 points.append(point)
             point_mean = np.mean(points, axis=0)
             key_points.append((feat_mean, point_mean))
         return key_points
 
-import tf2_ros
-import rclpy
 from geometry_msgs.msg import TransformStamped
 import tf_transformations
 import pickle
@@ -181,36 +211,46 @@ class PointCloudFeatureMap():
     def __init__(self, round_to=0.2):
         self.round_to = round_to
         self.pcfm = {}
-        self.prev_time = self.get_clock().now().nanoseconds * 1e-9
-        self.curr_time = self.get_clock().now().nanoseconds * 1e-9
 
-    def update_pcfm(self, key_points, pcfm_threshold=4000, drop_range=0.5, drop_ratio=0.2, tf_array=None):
-        if self.camera_to_world is not None:
-            if len(self.pcfm) > pcfm_threshold:
-                length = len(self.pcfm)
-                key_i = np.arange(int(length*drop_range))
-                drop_keys_i = np.random.choice(key_i, int(length * drop_ratio), replace=False)
-                keys = list(self.pcfm.keys())
-                for key_index in drop_keys_i:
-                    self.pcfm.pop(keys[key_index])
+    def update_pcfm(self, key_points, translation, rotation, pcfm_threshold=4000, drop_range=0.5, drop_ratio=0.2):
+        
+        # Drop certain amount of feature points when a threshold is reached
+        if len(self.pcfm) > pcfm_threshold:
+            length = len(self.pcfm)
+            key_i = np.arange(int(length*drop_range))
+            drop_keys_i = np.random.choice(key_i, int(length * drop_ratio), replace=False)
+            keys = list(self.pcfm.keys())
+            for key_index in drop_keys_i:
+                self.pcfm.pop(keys[key_index])
 
-            translation = tf_array[:3]
-            rotation = tf_array[3:]
-            rotation_matrix = tf_transformations.quaternion_matrix(rotation)[:3, :3]
+        # Update the feature map with the new key points (to the world frame)
+        rotation_matrix = tf_transformations.quaternion_matrix(rotation)[:3, :3]
 
-            for feat_mean, point_mean in key_points:
-                point_mean = np.dot(rotation_matrix, point_mean) + translation
-                point_mean = point_mean // self.round_to * self.round_to
-                self.pcfm[tuple(point_mean)] = feat_mean
-            return True
-        else:
-            return False
+        for feat_mean, point_mean in key_points:
+            # point_mean = np.dot(rotation_matrix, point_mean) + translation
+            point_mean = point_mean // self.round_to * self.round_to
+            self.pcfm[tuple(point_mean)] = feat_mean
     
-    def save_pcfm(self, file_name, update_interval=10):
-        self.curr_time = self.get_clock().now().nanoseconds * 1e-9
-        if self.curr_time - self.prev_time > update_interval:
-            with open(file_name, 'wb') as f:
-                pickle.dump(self.pcfm, f)
-            self.prev_time = self.curr_time
-            return True
-        return False
+    def save_pcfm(self, file_name):
+        with open(file_name, 'wb') as f:
+            pickle.dump(self.pcfm, f)
+        self.prev_time = self.curr_time
+
+from sensor_msgs.msg import PointCloud
+from geometry_msgs.msg import Point32
+class PointCloudManager(Node):
+    def __init__(self):
+        super().__init__('point_cloud_manager')
+        self.publisher = self.create_publisher(PointCloud, '/point_cloud', 10)
+    
+    def publish_point_cloud(self, pcfm_map):
+        point_cloud_msg = PointCloud()
+        point_cloud_msg.header.stamp = self.get_clock().now().to_msg()
+        point_cloud_msg.header.frame_id = 'map'
+        for point in pcfm_map.keys():
+            msg_point = Point32()
+            msg_point.x = point[0]
+            msg_point.y = point[1]
+            msg_point.z = point[2]
+            point_cloud_msg.points.append(msg_point)
+        self.publisher.publish(point_cloud_msg)
