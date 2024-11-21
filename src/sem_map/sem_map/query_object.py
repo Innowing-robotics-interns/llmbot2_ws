@@ -16,7 +16,7 @@ def similarity(text, features):
         text_feat = model.encode_text(text)
     similarities = []
     for feat in features:
-        similarities.append(feat @ text_feat.t())
+        similarities.append(feat.half() @ text_feat.t())
     similarities = torch.cat(similarities)
     similarities = similarities.cpu().detach().numpy()
     return similarities
@@ -25,6 +25,8 @@ def main(args=None):
     map_path = "/home/fyp/llmbot2_ws/src/sem_map/sem_map/pcfm.pkl"
     with open(map_path, 'rb') as f:
         pcfm = pickle.load(f)
+    print("pcfm loaded:")
+    print("length:", len(pcfm))
 
     rclpy.init(args=args)
     executor = MultiThreadedExecutor()
@@ -34,17 +36,25 @@ def main(args=None):
     executor.add_node(pc_manager)
     executor.add_node(search_manager)
 
-    threshold = 0.95
+    threshold = 0.89
 
     try:
         while rclpy.ok():
-            pc_manager.publish_point_cloud(pcfm.keys())
+            print("publishing background", len(list(pcfm.keys())), "points")
+            pc_manager.publish_point_cloud(list(pcfm.keys()))
             text = input("Enter text: ")
+            pc_manager.publish_point_cloud(list(pcfm.keys()))
+
             similarities = similarity(text, list(pcfm.values()))
+            pc_manager.publish_point_cloud(list(pcfm.keys()))
+
             # find all index where similarity is greater than threshold
-            idx = torch.where(similarity > threshold)[0]
+            idx = np.where(similarities > threshold)[0]
             points = np.array(list(pcfm.keys()))[idx]
+            print("points shape", points.shape)
             search_manager.publish_point_cloud(points)
+            print("Found", len(points), "points")
+            print("max similarity:", np.max(similarities))
             executor.spin_once(timeout_sec=0.5)
             time.sleep(0.1)
     except KeyboardInterrupt:
