@@ -57,20 +57,39 @@ def main(args=None):
         save_every = 10
         c = 0
         while rclpy.ok():
+            rclpy.logging.get_logger('update_map').info(f"Sending info hs...")
             socket_receiver.send_handshake('info')
+            rclpy.logging.get_logger('update_map').info(f"Waiting for info...")
             socket_receiver.get_info()
+            rclpy.logging.get_logger('update_map').info(f"Sending trans hs...")
             socket_receiver.send_handshake('trans')
+            rclpy.logging.get_logger('update_map').info(f"Waiting for trans...")
             socket_receiver.get_trans()
+            rclpy.logging.get_logger('update_map').info(f"Sending color hs...")
             socket_receiver.send_handshake('color')
+            rclpy.logging.get_logger('update_map').info(f"Waiting for color...")
             socket_receiver.get_color()
+            rclpy.logging.get_logger('update_map').info(f"Sending depth hs...")
             socket_receiver.send_handshake('depth')
+            rclpy.logging.get_logger('update_map').info(f"Waiting for depth...")
             socket_receiver.get_depth()
+
 
             if True:
                 rclpy.logging.get_logger('update_map').info(f"Received tf. trans: {socket_receiver.translation}; rot: {socket_receiver.rotation}")
+                ax, ay, az = tf_transformations.euler_from_quaternion(socket_receiver.rotation)
+                rclpy.logging.get_logger('update_map').info(f"Received angle: {az}")
 
                 rscalc.update_depth(socket_receiver.depth)
                 rscalc.update_intr(socket_receiver.info)
+
+                rclpy.logging.get_logger('update_map').info(f"Received depth: {socket_receiver.depth.shape}")
+                # point_dict = {}
+                # for x in range(640):
+                #     for y in range(480):
+                #         if x % 50 == 0 and y % 50 == 0:
+                #             point_dict[tuple(rscalc.calculate_point(y, x))] = 0
+                # pc_manager.publish_transformed_point_cloud(socket_receiver.translation, socket_receiver.rotation, point_dict.keys())
 
                 image_tensor = transform(socket_receiver.pil_image)
                 with torch.no_grad():

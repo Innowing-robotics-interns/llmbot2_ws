@@ -33,16 +33,19 @@ def main(args=None):
 
     pc_manager = PointCloudManager(topic_name='/pointcloud')
     search_manager = PointCloudManager(topic_name='/pc_search')
+    max_manager = PointCloudManager(topic_name='/max_search')
     executor.add_node(pc_manager)
     executor.add_node(search_manager)
 
     threshold = 0.89
+    print("\033[H\033[J", end="")
+    print("threshold similarity:", threshold)
 
     try:
         while rclpy.ok():
             print("publishing background", len(list(pcfm.keys())), "points")
             pc_manager.publish_point_cloud(list(pcfm.keys()))
-            text = input("Enter text: ")
+            text = input("Enter New Query: ")
             pc_manager.publish_point_cloud(list(pcfm.keys()))
 
             similarities = similarity(text, list(pcfm.values()))
@@ -51,12 +54,18 @@ def main(args=None):
             # find all index where similarity is greater than threshold
             idx = np.where(similarities > threshold)[0]
             points = np.array(list(pcfm.keys()))[idx]
-            print("points shape", points.shape)
+            # print("points shape", points.shape)
             search_manager.publish_point_cloud(points)
-            print("Found", len(points), "points")
-            print("max similarity:", np.max(similarities))
+            max_manager.publish_point_cloud([list(pcfm.keys())[np.argmax(similarities)]])
             executor.spin_once(timeout_sec=0.5)
+
+            print("\033[H\033[J", end="")
+            print("Query:", text)
+            print()
+            print("Found", len(points), "points")
+            print("Max Similarity Point:", [list(pcfm.keys())[np.argmax(similarities)]])
             time.sleep(0.1)
+
     except KeyboardInterrupt:
         rclpy.logging.get_logger('query_object').info("KeyboardInterrupt")
     finally:

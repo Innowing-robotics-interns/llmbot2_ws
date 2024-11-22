@@ -30,19 +30,12 @@ class SocketReceiver():
     
     def get_trans(self):
         data_valid = struct.unpack('<L', self.conn.recv(4))[0]
-        if data_valid == 0:
-            data = self.conn.recv(12)
-            self.translation = np.array(struct.unpack('<3f', data))
-            data = self.conn.recv(16)
-            self.rotation = np.array(struct.unpack('<4f', data))
-            print("Received empty transformation data")
-        else:
-            # obtain 7 float
-            data = self.conn.recv(12)
-            self.translation = np.array(struct.unpack('<3f', data))
-            data = self.conn.recv(16)
-            self.rotation = np.array(struct.unpack('<4f', data))
-            print("Received transformation data")
+        # obtain 7 float
+        data = self.conn.recv(12)
+        self.translation = np.array(struct.unpack('<3f', data))
+        data = self.conn.recv(16)
+        self.rotation = np.array(struct.unpack('<4f', data))
+        print("Received transformation data")
     
     def get_color(self):
         print("Waiting for image data...")
@@ -224,12 +217,16 @@ class PointCloudFeatureMap():
             keys = list(self.pcfm.keys())
             for key_index in drop_keys_i:
                 self.pcfm.pop(keys[key_index])
+        
+        # Obtain the inverse transform of translation and rotation and then translate point_mean using it
+        # translation = -translation
+        # rotation = tf_transformations.quaternion_inverse(rotation)
 
         # Update the feature map with the new key points (to the world frame)
         rotation_matrix = tf_transformations.quaternion_matrix(rotation)[:3, :3]
 
         for feat_mean, point_mean in key_points:
-            # point_mean = np.dot(rotation_matrix, point_mean) + translation
+            point_mean = np.dot(rotation_matrix, point_mean) + translation
             point_mean = point_mean // self.round_to * self.round_to
             self.pcfm[tuple(point_mean)] = feat_mean
     
@@ -256,6 +253,26 @@ class PointCloudManager(Node):
             point_cloud_msg.points.append(msg_point)
         self.publisher.publish(point_cloud_msg)
 
+    def publish_transformed_point_cloud(self, translation, rotation, pointcloud_list):
+        point_cloud_msg = PointCloud()
+        point_cloud_msg.header.stamp = self.get_clock().now().to_msg()
+        point_cloud_msg.header.frame_id = 'map'
+        rotation_matrix = tf_transformations.quaternion_matrix(rotation)
+        translation_matrix = tf_transformations.translation_matrix(translation)
+        transformation = tf_transformations.concatenate_matrices(translation_matrix, rotation_matrix)
+        self.get_logger().info(f"transformation matrix: {transformation}")
+        transformation = tf_transformations.inverse_matrix(transformation)
+        self.get_logger().info(f"transformation matrix: {transformation}")
+        for point in pointcloud_list:
+            point = np.append(point, 1)
+            point = np.dot(transformation, point)
+            
+            msg_point = Point32()
+            msg_point.x = point[0] + translation[0]
+            msg_point.y = point[1] + translation[1]
+            msg_point.z = point[2] + translation[2]
+            point_cloud_msg.points.append(msg_point)
+        self.publisher.publish(point_cloud_msg)
 
 
 ###### Testing Code ######
