@@ -4,6 +4,10 @@ ros2 workspace for a llm-driven robot
 
 ## object_tracker
 - locate object's mask in the first frame and track the object's center at each frame
+- owl_vit -> segment anything -> XMEM -> depth deptroject to 3D
+- hugging face owl vit: https://huggingface.co/docs/transformers/model_doc/owlvit
+- segment anything: https://github.com/facebookresearch/segment-anything
+- XMEM: https://github.com/hkchengrex/XMem
 
 **video demo**
 
