@@ -9,7 +9,7 @@ ros2 workspace for a llm-driven robot
 - segment anything: https://github.com/facebookresearch/segment-anything
 - XMEM: https://github.com/hkchengrex/XMem
 
-**video demo**
+#### **video demo**(Click to view)
 
 [![Watch the video](https://img.youtube.com/vi/PtvrjFVf8sE/0.jpg)](https://www.youtube.com/watch?v=PtvrjFVf8sE)
 
@@ -17,7 +17,7 @@ ros2 workspace for a llm-driven robot
 - a replication of VLMaps(https://github.com/vlmaps/vlmaps) with some custom modifications
 - building 3D semantic map, input the object name and find its' 3D location
 
-**video demo**
+#### **video demo**(Click to view)
 
 [![Watch the video](https://img.youtube.com/vi/3x6oQzM47_Q/0.jpg)](https://www.youtube.com/watch?v=3x6oQzM47_Q)
 
