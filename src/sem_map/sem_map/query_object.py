@@ -11,6 +11,7 @@ from .map_utils import PointCloudManager
 
 import pickle
 
+
 def similarity(text, features):
     with torch.no_grad():
         text_feat = model.encode_text(text)
@@ -21,9 +22,10 @@ def similarity(text, features):
     similarities = similarities.cpu().detach().numpy()
     return similarities
 
+
 def main(args=None):
     map_path = "/home/fyp/llmbot2_ws/src/sem_map/sem_map/pcfm.pkl"
-    with open(map_path, 'rb') as f:
+    with open(map_path, "rb") as f:
         pcfm = pickle.load(f)
     print("pcfm loaded:")
     print("length:", len(pcfm))
@@ -31,9 +33,9 @@ def main(args=None):
     rclpy.init(args=args)
     executor = MultiThreadedExecutor()
 
-    pc_manager = PointCloudManager(topic_name='/pointcloud')
-    search_manager = PointCloudManager(topic_name='/pc_search')
-    max_manager = PointCloudManager(topic_name='/max_search')
+    pc_manager = PointCloudManager(topic_name="/pointcloud")
+    search_manager = PointCloudManager(topic_name="/pc_search")
+    max_manager = PointCloudManager(topic_name="/max_search")
     executor.add_node(pc_manager)
     executor.add_node(search_manager)
 
@@ -56,7 +58,9 @@ def main(args=None):
             points = np.array(list(pcfm.keys()))[idx]
             # print("points shape", points.shape)
             search_manager.publish_point_cloud(points)
-            max_manager.publish_point_cloud([list(pcfm.keys())[np.argmax(similarities)]])
+            max_manager.publish_point_cloud(
+                [list(pcfm.keys())[np.argmax(similarities)]]
+            )
             executor.spin_once(timeout_sec=0.5)
 
             print("\033[H\033[J", end="")
@@ -67,15 +71,14 @@ def main(args=None):
             time.sleep(0.1)
 
     except KeyboardInterrupt:
-        rclpy.logging.get_logger('query_object').info("KeyboardInterrupt")
+        rclpy.logging.get_logger("query_object").info("KeyboardInterrupt")
     finally:
-        rclpy.logging.get_logger('query_object').info("Shutting down...")
+        rclpy.logging.get_logger("query_object").info("Shutting down...")
         pc_manager.destroy_node()
         search_manager.destroy_node()
         executor.shutdown()
         rclpy.shutdown()
 
 
-
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

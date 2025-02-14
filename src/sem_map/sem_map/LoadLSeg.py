@@ -1,4 +1,4 @@
-Lang_Seg_Path = '/home/fyp/lang-seg'
+Lang_Seg_Path = "/home/fyp/lang-seg"
 
 import os
 import argparse
@@ -18,19 +18,29 @@ from fewshot_data.data.dataset import FSSDataset
 from test_lseg_zs import Options
 
 import sys
+
 sys.argv = [
-    'ipykernel_launcher.py',  # Script name
-    '--backbone', 'clip_vitl16_384',
-    '--module', 'clipseg_DPT_test_v2',
-    '--dataset', 'fss',
-    '--widehead', 
-    '--no-scaleinv', 
-    '--arch_option', '0',
-    '--ignore_index', '255',
-    '--fold', '0',
-    '--nshot', '0',
-    '--weights', Lang_Seg_Path+'/checkpoints/demo_e200.ckpt',
-    '--datapath', 'data/Datasets_HSN'
+    "ipykernel_launcher.py",  # Script name
+    "--backbone",
+    "clip_vitl16_384",
+    "--module",
+    "clipseg_DPT_test_v2",
+    "--dataset",
+    "fss",
+    "--widehead",
+    "--no-scaleinv",
+    "--arch_option",
+    "0",
+    "--ignore_index",
+    "255",
+    "--fold",
+    "0",
+    "--nshot",
+    "0",
+    "--weights",
+    Lang_Seg_Path + "/checkpoints/demo_e200.ckpt",
+    "--datapath",
+    "data/Datasets_HSN",
 ]
 args = Options().parse()
 
@@ -38,10 +48,12 @@ args = Options().parse()
 os.chdir(Lang_Seg_Path)
 
 from modules.models.lseg_blocks_zs import forward_vit
+
+
 class FeatureLSeg(LSegModuleZS):
     def __init__(self, *args, **kwargs):
         super(FeatureLSeg, self).__init__(*args, **kwargs)
-    
+
     def forward(self, x):
 
         layer_1, layer_2, layer_3, layer_4 = forward_vit(self.net.pretrained, x)
@@ -60,23 +72,28 @@ class FeatureLSeg(LSegModuleZS):
 
         image_features = self.net.scratch.head1(path_1)
         imshape = image_features.shape
-        image_features = image_features.permute(0,2,3,1).reshape(-1, self.net.out_c)
+        image_features = image_features.permute(0, 2, 3, 1).reshape(-1, self.net.out_c)
 
         # normalized features
         image_features = image_features / image_features.norm(dim=-1, keepdim=True)
-        pixel_encoding = self.net.logit_scale * image_features.half() 
-        pixel_encoding = pixel_encoding.float().view(imshape[0], imshape[2], imshape[3], -1).permute(0,3,1,2)
+        pixel_encoding = self.net.logit_scale * image_features.half()
+        pixel_encoding = (
+            pixel_encoding.float()
+            .view(imshape[0], imshape[2], imshape[3], -1)
+            .permute(0, 3, 1, 2)
+        )
         pixel_encoding = self.net.scratch.output_conv(pixel_encoding)
         pixel_encoding = pixel_encoding.squeeze(0).permute(1, 2, 0)
         pixel_encoding = pixel_encoding / pixel_encoding.norm(dim=-1, keepdim=True)
-            
+
         return pixel_encoding
-    
-    def encode_text(self, text, device=torch.device(type='cuda',index=0)):
+
+    def encode_text(self, text, device=torch.device(type="cuda", index=0)):
         text = clip.tokenize(text).to(device)
         text_feature = self.net.clip_pretrained.encode_text(text.to(device))
         text_feature = text_feature / text_feature.norm(dim=-1, keepdim=True)
         return text_feature
+
 
 print("Loading model...")
 model_feat = FeatureLSeg.load_from_checkpoint(
@@ -103,7 +120,7 @@ model_feat = FeatureLSeg.load_from_checkpoint(
     arch_option=args.arch_option,
     use_pretrained=args.use_pretrained,
     strict=args.strict,
-    logpath=Lang_Seg_Path+'/fewshot/logpath_4T/',
+    logpath=Lang_Seg_Path + "/fewshot/logpath_4T/",
     fold=args.fold,
     block_depth=0,
     nshot=args.nshot,
@@ -113,4 +130,3 @@ model_feat = FeatureLSeg.load_from_checkpoint(
 print("Model loaded.")
 
 model = model_feat.eval().cuda()
-
