@@ -1,5 +1,5 @@
+import rclpy
 from rclpy.node import Node
-from sensor_msgs.msg import Image
 from cv_bridge import CvBridge
 import cv2
 from PIL import Image as PILImage, PngImagePlugin
@@ -14,6 +14,7 @@ import tf_transformations
 import pickle
 import torchvision.transforms as transforms
 import torch
+import threading
 
 '''
 2. remember to add obtain_key_points
@@ -27,17 +28,11 @@ class SocketReceiver:
         server_socket (socket.socket): The server socket object.
         conn (socket.socket): The connection socket object.
         addr (tuple): The address bound to the socket.
-        translation (numpy.ndarray): The translation data received from the socket.
-        rotation (numpy.ndarray): The rotation data received from the socket.
-        depth (numpy.ndarray): The depth image data received from the socket.
-        color (numpy.ndarray): The color image data received from the socket.
-        pil_image (PIL.Image.Image): The color image in PIL format.
-        info (numpy.ndarray): The additional info data received from the socket.
 
     Methods:
         socket_connect(port_num=5001): Establishes a socket connection on the given port.
         send_handshake(handshake_message): Sends a handshake message to the connected client.
-        get_data(variable_length=False, formats=["<3f", "<4f"]): Receives data from the socket.
+        receive_data(variable_length=False, formats=["<3f", "<4f"]): Receives data from the socket.
     '''
     def __init__(self):
         self.server_socket = None
@@ -53,7 +48,7 @@ class SocketReceiver:
         print(f"Sending handshake message:{handshake_message}")
         self.conn.sendall(handshake_message.encode())
 
-    def get_data(self, variable_length=False, formats="<3f<4f"):
+    def receive_data(self, variable_length=False, formats="<3f4f"):
         '''
         Receives data from the socket, either of variable length or fixed length based on provided formats.
         if the data is fixed length, the sender needs to send a valid data flag 1 of "<L" before sending the data.
@@ -195,6 +190,17 @@ class FeatImageProcessor:
         return clustered_image
 
     def obtain_key_pixels(self, feat, clustered_image, n_pixels=30, rule_out_threshold=500):
+        '''Obtain key pixels from the clustered image based on the feature map.
+
+        Args:
+            feat (torch.Tensor): The input feature map.
+            clustered_image (numpy.ndarray): The clustered image.
+            n_pixels (int): The number of key pixels to obtain.
+            rule_out_threshold (int): The threshold to rule out classes with fewer pixels.
+
+        Returns:
+            list: The list of key pixels in the format of (feat_mean, [[pixel_y ...], [pixel_x...]]).
+        '''
         num_class = clustered_image.max() + 1
         key_pixels = []
         for i in range(num_class):
@@ -216,10 +222,13 @@ class ServerFeaturePointCloudMap:
     def __init__(self, round_to=0.2):
         self.round_to = round_to
         self.fpc = {}
+
         self.info = None
         self.trans = None
         self.pil_image = None
         self.depth = None
+
+        self.key_points = None
         self.socket_receiver = SocketReceiver()
         self.rscalc = RealSensePointCalculator()
         self.fip = FeatImageProcessor()
@@ -235,13 +244,18 @@ class ServerFeaturePointCloudMap:
             ]
         )
         self.current_feature = None
+
+    def set_model(self, model):
+        self.model = model
     
     def receive_info(self):
         self.info = self.socket_receiver.receive_data(variable_length=False, formats="<2I4d")
+        print(f"Received info: {self.info}")
     
     def receive_trans(self):
         # first 3 floats are translation, next 4 floats are rotation
-        self.trans = self.socket_receiver.receive_data(variable_length=False, formats="<3f<4f")
+        self.trans = self.socket_receiver.receive_data(variable_length=False, formats="<3f4f")
+        print(f"Received trans: {self.trans[:3]}, rot: {self.trans[3:]}")
     
     def receive_color(self):
         data = self.socket_receiver.receive_data(variable_length=True)
@@ -250,31 +264,42 @@ class ServerFeaturePointCloudMap:
             color_img = cv2.imdecode(np_array, cv2.IMREAD_COLOR)
             color = cv2.cvtColor(color_img, cv2.COLOR_BGR2RGB)
             self.pil_image = PILImage.fromarray(color)
+            print(f"Received color: {color.shape}")
         else:
             print("Received empty color data")
             return None
     
     def receive_depth(self):
-        data = self.socket_receiver.get_data(variable_length=True)
+        data = self.socket_receiver.receive_data(variable_length=True)
         if data is not None:
             np_array = np.frombuffer(data, np.uint8)
             self.depth = cv2.imdecode(np_array, cv2.IMREAD_UNCHANGED)
+            print(f"Received depth: {self.depth.shape}")
         else:
             print("Received empty depth data")
             return None
     
     def handshake_receive_data(self):
         self.socket_receiver.send_handshake("info")
-        self.socket_receiver.receive_info()
+        self.receive_info()
         self.socket_receiver.send_handshake("trans")
-        self.socket_receiver.receive_trans()
+        self.receive_trans()
         self.socket_receiver.send_handshake("color")
-        self.socket_receiver.receive_color()
+        self.receive_color()
         self.socket_receiver.send_handshake("depth")
-        self.socket_receiver.receive_depth()
+        self.receive_depth()
     
-    def set_model(self, model):
-        self.model = model
+    def init_socket(self, port_num=5555):
+        self.socket_receiver.socket_connect(port_num)
+
+        while (
+            rclpy.ok()
+            and self.pil_image is None
+            or self.depth is None
+            or self.trans is None
+            or self.info is None
+            ):
+            self.handshake_receive_data()
     
     def update_feature(self):
         image_tensor = self.transform(self.pil_image)
@@ -301,12 +326,10 @@ class ServerFeaturePointCloudMap:
         clustered_image = self.fip.Cluster(features)
         key_pixels = self.fip.obtain_key_pixels(self.current_feature, clustered_image)
         self.rscalc.update_depth(self.depth)
-        key_points = self.obtain_key_points(key_pixels)
-        return key_points
+        self.key_points = self.obtain_key_points(key_pixels)
 
     def update_fpc(
         self,
-        key_points,
         translation,
         rotation,
         fpc_threshold=4000,
@@ -328,15 +351,90 @@ class ServerFeaturePointCloudMap:
         # Update the feature map with the new key points (to the world frame)
         rotation_matrix = tf_transformations.quaternion_matrix(rotation)[:3, :3]
 
-        for feat_mean, point_mean in key_points:
-            point_mean = np.dot(rotation_matrix, point_mean) + translation
-            point_mean = point_mean // self.round_to * self.round_to
-            self.fpc[tuple(point_mean)] = feat_mean
+        if self.key_points is None:
+            print("No Key Points This Frame")
+        else:
+            for feat_mean, point_mean in self.key_points:
+                point_mean = np.dot(rotation_matrix, point_mean) + translation
+                point_mean = point_mean // self.round_to * self.round_to
+                self.fpc[tuple(point_mean)] = feat_mean
     
     def save_fpc(self, file_name):
         with open(file_name, "wb") as f:
             pickle.dump(self.fpc, f)
+    
+    def receive_data_and_update(self):
+        if self.model is None or self.socket_receiver.conn is None: 
+            raise Exception("Model not set or socket not connected")
 
+        self.handshake_receive_data()
+        self.update_feature()
+        self.rscalc.update_depth(self.depth)
+        self.rscalc.update_intr(self.info)
+        self.feat_to_points()
+        self.update_fpc(translation=self.trans[:3],
+                        rotation=self.trans[3:],
+                        fpc_threshold=4000,
+                        drop_range=0.5,
+                        drop_ratio=0.2)
+
+    def similarity(self, text, features):
+        with torch.no_grad():
+            text_feat = self.model.encode_text(text)
+        similarities = []
+        for feat in features:
+            similarities.append(feat.half() @ text_feat.t())
+        similarities = torch.cat(similarities)
+        similarities = similarities.cpu().detach().numpy()
+        return similarities
+    
+    def max_sim_feature(self, text):
+        similarities = self.similarity(text, list(self.fpc.values()))
+        return list(self.fpc.keys())[np.argmax(similarities)]
+
+class TextQueryReceiver:
+    '''
+    A class to handle receiving text queries from a socket and finding the max similarity feature's point in the ServerFeaturePointCloudMap.
+
+    Attributes:
+        server_socket (socket.socket): The server socket object.
+        conn (socket.socket): The connection socket object.
+        addr (tuple): The address bound to the socket.
+        sfpc (ServerFeaturePointCloudMap): The ServerFeaturePointCloudMap instance to search for max similarity feature's point.
+
+    Methods:
+        socket_connect(port_num=6000): Establishes a socket connection on the given port.
+        receive_query(): Receives a text query from the socket and finds the max similarity feature's point.
+        start_listening(): Starts a thread to listen for incoming text queries.
+    '''
+    def __init__(self, sfpc):
+        self.server_socket = None
+        self.conn, self.addr = None, None
+        self.sfpc = sfpc
+
+    def socket_connect(self, port_num=6000):
+        self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.server_socket.bind(("0.0.0.0", port_num))
+        self.server_socket.listen(1)
+        self.conn, self.addr = self.server_socket.accept()
+        print(f"TextQueryReceiver connected on port {port_num}")
+
+    def receive_query(self):
+        while True:
+            data = self.conn.recv(1024).decode()
+            if data:
+                print(f"Received query: {data}")
+                max_point = self.sfpc.max_sim_feature(str(data))
+                print(f"Max similarity point: {max_point}")
+                # Send the max similarity point back to the client
+                self.conn.sendall(str(max_point).encode())
+            else:
+                break
+
+    def start_listening(self, port_num=6000):
+        self.socket_connect(port_num)
+        thread = threading.Thread(target=self.receive_query)
+        thread.start()
 
 from sensor_msgs.msg import PointCloud
 from geometry_msgs.msg import Point32
