@@ -434,8 +434,8 @@ class TextQueryReceiver:
                         print(f"Received query: {data}")
                         max_point = self.sfpc.max_sim_feature(str(data))
                         print(f"Max similarity point: {max_point}")
-                        # Send the max similarity point back to the client
-                        self.conn.sendall(str(max_point).encode())
+                        # send a tuple of 3 floats
+                        self.conn.sendall(struct.pack("<3f", *max_point))
             except socket.error:
                 break
 
