@@ -7,7 +7,6 @@ import time
 
 # Before running this, add lang-seg folder to your python path
 from .LoadLSeg import *
-from test_lseg_zs import *
 
 from .map_utils import *
 
@@ -18,15 +17,21 @@ def main(args=None):
     executor = MultiThreadedExecutor()
     sfpc = ServerFeaturePointCloudMap()
     pc_manager = PointCloudManager()
-    text_query = TextQueryReceiver(sfpc=sfpc)
+
+    tq_yes = False
+    if input("add text query?(y/n):") == "y":
+        text_query = TextQueryReceiver(sfpc=sfpc)
+        tq_yes = True
     executor.add_node(pc_manager)
 
     # print("\033[H\033[J", end="")
     try:
-        rclpy.logging.get_logger("update_map").info(
-            "Ready to connect to text query socket client."
-        )
-        text_query.start_listening(port_num=6000)
+        if tq_yes:
+            rclpy.logging.get_logger("update_map").info(
+                "Ready to connect to text query socket client."
+            )
+            text_query.start_listening(port_num=6000)
+        
         rclpy.logging.get_logger("update_map").info(
             "Ready to connect to image sender socket client."
         )
@@ -49,7 +54,9 @@ def main(args=None):
     except KeyboardInterrupt:
         rclpy.logging.get_logger("update_map").info("KeyboardInterrupt")
     finally:
-        text_query.stop_listening()
+        if tq_yes:
+            text_query.stop_listening()
+
         rclpy.logging.get_logger("update_map").info("Shutting down...")
         sfpc.socket_receiver.server_socket.close()
         pc_manager.destroy_node()
