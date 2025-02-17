@@ -401,16 +401,19 @@ class TextQueryReceiver:
         conn (socket.socket): The connection socket object.
         addr (tuple): The address bound to the socket.
         sfpc (ServerFeaturePointCloudMap): The ServerFeaturePointCloudMap instance to search for max similarity feature's point.
+        running (bool): A flag to indicate if the server is running.
 
     Methods:
         socket_connect(port_num=6000): Establishes a socket connection on the given port.
         receive_query(): Receives a text query from the socket and finds the max similarity feature's point.
         start_listening(): Starts a thread to listen for incoming text queries.
+        stop_listening(): Stops the server from listening for incoming text queries.
     '''
     def __init__(self, sfpc):
         self.server_socket = None
         self.conn, self.addr = None, None
         self.sfpc = sfpc
+        self.running = False
 
     def socket_connect(self, port_num=6000):
         self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -420,23 +423,35 @@ class TextQueryReceiver:
         print(f"TextQueryReceiver connected on port {port_num}")
 
     def receive_query(self):
-        while True:
-            data = self.conn.recv(1024).decode()
-            if self.sfpc.fpc == {}:
-                print("Feature Point Cloud is empty.")
-                self.conn.sendall("Feature Point Cloud is empty.".encode())
-            else:
-                if data:
-                    print(f"Received query: {data}")
-                    max_point = self.sfpc.max_sim_feature(str(data))
-                    print(f"Max similarity point: {max_point}")
-                    # Send the max similarity point back to the client
-                    self.conn.sendall(str(max_point).encode())
+        while self.running:
+            try:
+                data = self.conn.recv(1024).decode()
+                if self.sfpc.fpc == {}:
+                    print("Feature Point Cloud is empty.")
+                    self.conn.sendall("Feature Point Cloud is empty.".encode())
+                else:
+                    if data:
+                        print(f"Received query: {data}")
+                        max_point = self.sfpc.max_sim_feature(str(data))
+                        print(f"Max similarity point: {max_point}")
+                        # Send the max similarity point back to the client
+                        self.conn.sendall(str(max_point).encode())
+            except socket.error:
+                break
 
     def start_listening(self, port_num=6000):
+        self.running = True
         self.socket_connect(port_num)
         thread = threading.Thread(target=self.receive_query)
         thread.start()
+
+    def stop_listening(self):
+        self.running = False
+        if self.conn:
+            self.conn.close()
+        if self.server_socket:
+            self.server_socket.close()
+        print("TextQueryReceiver stopped listening")
 
 from sensor_msgs.msg import PointCloud
 from geometry_msgs.msg import Point32
