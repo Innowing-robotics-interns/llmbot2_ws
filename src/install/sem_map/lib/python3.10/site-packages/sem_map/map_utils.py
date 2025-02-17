@@ -1,5 +1,6 @@
 import rclpy
 from rclpy.node import Node
+from sensor_msgs.msg import Image
 from cv_bridge import CvBridge
 import cv2
 from PIL import Image as PILImage, PngImagePlugin
@@ -14,7 +15,6 @@ import tf_transformations
 import pickle
 import torchvision.transforms as transforms
 import torch
-import threading
 
 '''
 2. remember to add obtain_key_points
@@ -28,6 +28,12 @@ class SocketReceiver:
         server_socket (socket.socket): The server socket object.
         conn (socket.socket): The connection socket object.
         addr (tuple): The address bound to the socket.
+        translation (numpy.ndarray): The translation data received from the socket.
+        rotation (numpy.ndarray): The rotation data received from the socket.
+        depth (numpy.ndarray): The depth image data received from the socket.
+        color (numpy.ndarray): The color image data received from the socket.
+        pil_image (PIL.Image.Image): The color image in PIL format.
+        info (numpy.ndarray): The additional info data received from the socket.
 
     Methods:
         socket_connect(port_num=5001): Establishes a socket connection on the given port.
@@ -367,76 +373,24 @@ class ServerFeaturePointCloudMap:
         if self.model is None or self.socket_receiver.conn is None: 
             raise Exception("Model not set or socket not connected")
 
+        print(0)
         self.handshake_receive_data()
+        print(1)
         self.update_feature()
+        print(2)
         self.rscalc.update_depth(self.depth)
+        print(3)
         self.rscalc.update_intr(self.info)
+        print(4)
         self.feat_to_points()
+        print(5)
         self.update_fpc(translation=self.trans[:3],
                         rotation=self.trans[3:],
                         fpc_threshold=4000,
                         drop_range=0.5,
                         drop_ratio=0.2)
-
-    def similarity(self, text, features):
-        with torch.no_grad():
-            text_feat = self.model.encode_text(text)
-        similarities = []
-        for feat in features:
-            similarities.append(feat.half() @ text_feat.t())
-        similarities = torch.cat(similarities)
-        similarities = similarities.cpu().detach().numpy()
-        return similarities
-    
-    def max_sim_feature(self, text):
-        similarities = self.similarity(text, list(self.fpc.values()))
-        return list(self.fpc.keys())[np.argmax(similarities)]
-
-class TextQueryReceiver:
-    '''
-    A class to handle receiving text queries from a socket and finding the max similarity feature's point in the ServerFeaturePointCloudMap.
-
-    Attributes:
-        server_socket (socket.socket): The server socket object.
-        conn (socket.socket): The connection socket object.
-        addr (tuple): The address bound to the socket.
-        sfpc (ServerFeaturePointCloudMap): The ServerFeaturePointCloudMap instance to search for max similarity feature's point.
-
-    Methods:
-        socket_connect(port_num=6000): Establishes a socket connection on the given port.
-        receive_query(): Receives a text query from the socket and finds the max similarity feature's point.
-        start_listening(): Starts a thread to listen for incoming text queries.
-    '''
-    def __init__(self, sfpc):
-        self.server_socket = None
-        self.conn, self.addr = None, None
-        self.sfpc = sfpc
-
-    def socket_connect(self, port_num=6000):
-        self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.server_socket.bind(("0.0.0.0", port_num))
-        self.server_socket.listen(1)
-        self.conn, self.addr = self.server_socket.accept()
-        print(f"TextQueryReceiver connected on port {port_num}")
-
-    def receive_query(self):
-        while True:
-            data = self.conn.recv(1024).decode()
-            if self.sfpc.fpc == {}:
-                print("Feature Point Cloud is empty.")
-                self.conn.sendall("Feature Point Cloud is empty.".encode())
-            else:
-                if data:
-                    print(f"Received query: {data}")
-                    max_point = self.sfpc.max_sim_feature(str(data))
-                    print(f"Max similarity point: {max_point}")
-                    # Send the max similarity point back to the client
-                    self.conn.sendall(str(max_point).encode())
-
-    def start_listening(self, port_num=6000):
-        self.socket_connect(port_num)
-        thread = threading.Thread(target=self.receive_query)
-        thread.start()
+        print(6)
+        
 
 from sensor_msgs.msg import PointCloud
 from geometry_msgs.msg import Point32
