@@ -132,7 +132,7 @@ class RealSensePointCalculator:
         self.intrinsics.fx = camera_info[4]
         self.intrinsics.fy = camera_info[5]
 
-    def calculate_point(self, pixel_y, pixel_x):
+    def calculate_point(self, pixel_y, pixel_x, threshold_depth=2.5):
         # Deprojection of depth camera pixel to 3D point
         depth_pixel_y = pixel_y + self.y_offset
         depth_pixel_x = pixel_x + self.x_offset
@@ -144,6 +144,8 @@ class RealSensePointCalculator:
         depth = (
             self.depth_image[depth_pixel_y, depth_pixel_x] * 0.001
         )  # Convert from mm to meters
+        if depth == 0 or depth > threshold_depth:
+            return None
         point = rs.rs2_deproject_pixel_to_point(
             self.intrinsics, [pixel_x, pixel_y], depth
         )
@@ -241,7 +243,7 @@ class FeatImageProcessor:
         clustered_image = self.relabel_connected_components(clustered_image, n_classes=n_clusters)
         return clustered_image
 
-    def obtain_key_pixels(self, feat, clustered_image, n_pixels=30, rule_out_threshold=500):
+    def obtain_key_pixels(self, feat, clustered_image, pixels_percent=0.3, rule_out_threshold=500):
         '''Obtain key pixels from the clustered image based on the feature map.
 
         Args:
@@ -253,6 +255,7 @@ class FeatImageProcessor:
         Returns:
             list: The list of key pixels in the format of (feat_mean, [[pixel_y ...], [pixel_x...]]).
         '''
+        pixels_percent = pixels_percent % 1
         num_class = clustered_image.max() + 1
         key_pixels = []
         for i in range(num_class):
@@ -263,7 +266,7 @@ class FeatImageProcessor:
             class_pixel = np.where(clustered_image == i)
             if len(class_pixel[0]) < rule_out_threshold:
                 continue
-            indices = np.random.choice(len(class_pixel[0]), n_pixels, replace=False)
+            indices = np.random.choice(len(class_pixel[0]), int(pixels_percent * len(class_pixel[0])), replace=False)
             # key_pixels stores list of (feat_mean, [[pixel_y ...], [pixel_x...]])
             key_pixels.append(
                 (feat_mean, [class_pixel[0][indices], class_pixel[1][indices]])
@@ -367,8 +370,11 @@ class ServerFeaturePointCloudMap:
         for feat_mean, pixels in key_pixels:
             points = []
             for i in range(len(pixels[0])):
-                point = self.rscalc.calculate_point(int(pixels[0][i]), int(pixels[1][i]))
-                points.append(point)
+                point = self.rscalc.calculate_point(int(pixels[0][i]), int(pixels[1][i]),threshold_depth=2.0)
+                if point is not None:
+                    points.append(point)
+            if len(points) == 0:
+                continue
             point_mean = np.mean(points, axis=0)
             key_points.append((feat_mean, point_mean))
         return key_points
