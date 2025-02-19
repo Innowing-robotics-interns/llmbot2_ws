@@ -3,12 +3,20 @@ from rclpy.node import Node
 from cv_bridge import CvBridge
 import cv2
 from PIL import Image as PILImage, PngImagePlugin
+
 import numpy as np
+import cupy
+
 import socket
 import struct
+
 from skimage.measure import label
-from sklearn.cluster import KMeans
+
 from sklearn.decomposition import PCA
+from cuml.decomposition import PCA as cuPCA
+from sklearn.cluster import KMeans
+from cuml.cluster import KMeans as cuKMeans
+
 import pyrealsense2 as rs
 import tf_transformations
 import pickle
@@ -144,7 +152,15 @@ class RealSensePointCalculator:
 
 class FeatImageProcessor:
     def relabel_connected_components(self, class_image, n_classes=10):
-        # Initialize an output image with the same shape
+        '''relabelling connected components in the clustered image.
+
+        Args:
+            class_image (numpy.ndarray): The clustered image.
+            n_classes (int): The number of classes in the clustered image.
+
+        Returns:
+            numpy.ndarray: The relabeled image.
+        '''
         relabeled_image = np.zeros_like(class_image)
 
         for class_label in range(n_classes):
@@ -154,7 +170,7 @@ class FeatImageProcessor:
             relabeled_image += relabeled_mask
         return relabeled_image
 
-    def PCA(self, feat, n_components=20):
+    def PCA_cpu(self, feat, n_components=20):
         '''
         Applies PCA to reduce the dimensionality of the feature map.
 
@@ -170,7 +186,23 @@ class FeatImageProcessor:
         features = pca.fit_transform(feat_map)
         return features
 
-    def Cluster(self, features, n_clusters=10, H=480, W=480):
+    def PCA_cuda(self, feat, n_components=20):
+        '''
+        Applies PCA to reduce the dimensionality of the feature map on CUDA.
+
+        Args:
+            feat (torch.Tensor): The input feature map.
+            n_components (int): The number of principal components to keep.
+
+        Returns:
+            numpy.ndarray: The transformed feature map with reduced dimensionality.
+        '''
+        pca = cuPCA(n_components=n_components)
+        feat_map = feat.flatten(start_dim=0, end_dim=1)
+        features = pca.fit_transform(feat_map)
+        return features
+
+    def Cluster_cpu(self, features, n_clusters=10, H=480, W=480):
         '''
         Applies K-Means clustering to the feature map.
 
@@ -186,6 +218,26 @@ class FeatImageProcessor:
         kmeans = KMeans(n_clusters=n_clusters, random_state=0)
         labels = kmeans.fit_predict(features)
         clustered_image = labels.reshape(H, W)
+        clustered_image = self.relabel_connected_components(clustered_image, n_classes=n_clusters)
+        return clustered_image
+
+    def Cluster_cuda(self, features, n_clusters=10, H=480, W=480):
+        '''
+        Applies K-Means clustering to the feature map on CUDA.
+
+        Args:
+            features (numpy.ndarray): The input feature map with reduced dimensionality.
+            n_clusters (int): The number of clusters to form.
+            H (int): The height of the original image.
+            W (int): The width of the original image.
+
+        Returns:
+            numpy.ndarray: The clustered image.
+        '''
+        kmeans = cuKMeans(n_clusters=n_clusters)
+        labels = kmeans.fit_predict(features)
+        clustered_image = labels.reshape(H, W)
+        clustered_image = cupy.asnumpy(clustered_image)
         clustered_image = self.relabel_connected_components(clustered_image, n_classes=n_clusters)
         return clustered_image
 
@@ -322,8 +374,8 @@ class ServerFeaturePointCloudMap:
         return key_points
     
     def feat_to_points(self):
-        features = self.fip.PCA(self.current_feature)
-        clustered_image = self.fip.Cluster(features)
+        features = self.fip.PCA_cuda(self.current_feature)
+        clustered_image = self.fip.Cluster_cuda(features)
         key_pixels = self.fip.obtain_key_pixels(self.current_feature, clustered_image)
         self.rscalc.update_depth(self.depth)
         self.key_points = self.obtain_key_points(key_pixels)
