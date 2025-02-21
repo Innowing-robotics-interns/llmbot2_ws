@@ -17,14 +17,36 @@ class SocketSender:
             point_list = []
             if num_points == 0:
                 print("No points found.")
-                return
+                return num_points, None
             for i in range(num_points):
                 point = struct.unpack("<3f", self.socket.recv(12))
                 point_list.append(point)
         except Exception as e:
             print(f"Error: {e}")
             return None
-        return np.array(point_list)
+        return num_points, np.array(point_list)
+
+    def looking_for_some_points(self, query, n_lower=10, n_upper=40, step=0.2, loop_max=20):
+        prev = 0 # 0 means no previous angle, 1 means previous is to high, -1 means previous is too low
+        for _ in range(loop_max):
+            num_points, points = self.send(query, angle)
+            if num_points < n_lower:
+                if prev != 1:
+                    angle += step 
+                else:
+                    step /= 2
+                    angle += step 
+                prev = -1
+            elif num_points > n_upper:
+                if prev != -1:
+                    angle -= step 
+                else:
+                    step /= 2
+                    angle -= step 
+                prev = 1
+            else:
+                return angle, num_points, points
+        return angle, num_points, points
 
     def __del__(self):
         self.socket.close()
@@ -38,4 +60,5 @@ if __name__ == "__main__":
             print("Invalid angle.")
             continue
         query = input("Enter your query: ")
-        print(sender.send(query, angle))
+        angle, num_points, points = sender.looking_for_some_points(query)
+        print(f"Angle: {angle}, Number of points: {num_points}, Points: {points}")
