@@ -11,6 +11,7 @@ from .LoadLSeg import *
 from .map_utils import *
 
 def main(args=None):
+    dir_path = "/home/fyp/llmbot2_ws/src/sem_map/sem_map/"
     map_path = "/home/fyp/llmbot2_ws/src/sem_map/sem_map/pcfm.pkl"
 
     rclpy.init(args=args)
@@ -18,25 +19,29 @@ def main(args=None):
     sfpc = ServerFeaturePointCloudMap()
     pc_manager = PointCloudManager()
 
+    if input("load map?(y/n):") == "y":
+        read_map_path = input("Enter map path:")
+        sfpc.read_fpc(dir_path+read_map_path)
+
     tq_yes = False
     if input("add text query?(y/n):") == "y":
         text_query = TextQueryReceiver(sfpc=sfpc)
         tq_yes = True
     executor.add_node(pc_manager)
-
-    # print("\033[H\033[J", end="")
+    
     try:
-        if tq_yes:
-            rclpy.logging.get_logger("update_map").info(
-                "Ready to connect to text query socket client."
-            )
-            text_query.start_listening(port_num=6000)
         
         rclpy.logging.get_logger("update_map").info(
             "Ready to connect to image sender socket client."
         )
         sfpc.init_socket(port_num=5555)
         sfpc.set_model(model)
+
+        if tq_yes:
+            rclpy.logging.get_logger("update_map").info(
+                "Ready to connect to text query socket client."
+            )
+            text_query.start_listening(port_num=6000)
 
         save_every = 10
         c = 0

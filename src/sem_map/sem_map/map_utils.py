@@ -53,7 +53,7 @@ class SocketReceiver:
         self.conn, self.addr = self.server_socket.accept()
 
     def send_handshake(self, handshake_message):
-        print(f"Sending handshake message:{handshake_message}")
+        # print(f"Sending handshake message:{handshake_message}")
         self.conn.sendall(handshake_message.encode())
 
     def receive_data(self, variable_length=False, formats="<3f4f"):
@@ -132,7 +132,7 @@ class RealSensePointCalculator:
         self.intrinsics.fx = camera_info[4]
         self.intrinsics.fy = camera_info[5]
 
-    def calculate_point(self, pixel_y, pixel_x, threshold_depth=2.5):
+    def calculate_point(self, pixel_y, pixel_x):
         # Deprojection of depth camera pixel to 3D point
         depth_pixel_y = pixel_y + self.y_offset
         depth_pixel_x = pixel_x + self.x_offset
@@ -144,8 +144,6 @@ class RealSensePointCalculator:
         depth = (
             self.depth_image[depth_pixel_y, depth_pixel_x] * 0.001
         )  # Convert from mm to meters
-        if depth == 0 or depth > threshold_depth:
-            return None
         point = rs.rs2_deproject_pixel_to_point(
             self.intrinsics, [pixel_x, pixel_y], depth
         )
@@ -289,6 +287,7 @@ class ServerFeaturePointCloudMap:
         self.fip = FeatImageProcessor()
 
         self.model = None
+        
         self.transform = transforms.Compose(
             [
                 transforms.Resize(
@@ -300,17 +299,35 @@ class ServerFeaturePointCloudMap:
         )
         self.current_feature = None
 
+        self.total_pixel = 480 * 480
+
+        self.distance_threshold = 2.0
+
+        self.pixel_percent_for_distance = 0.3
+
+    def object_clear_metric(self, num_pixels, distance):
+        norm_dist = distance / self.distance_threshold
+        norm_pixel = num_pixels/230400
+
+        ideal_dist = 0.7
+        ideal_pixel = 0.12
+
+        weight_dist = 0.2
+        weight_pixel = 0.8
+
+        return weight_dist * (norm_dist - ideal_dist)**2 + weight_pixel * (norm_pixel - ideal_pixel)**2
+
     def set_model(self, model):
         self.model = model
     
     def receive_info(self):
         self.info = self.socket_receiver.receive_data(variable_length=False, formats="<2I4d")
-        print(f"Received info: {self.info}")
+        # print(f"Received info: {self.info}")
     
     def receive_trans(self):
         # first 3 floats are translation, next 4 floats are rotation
         self.trans = self.socket_receiver.receive_data(variable_length=False, formats="<3f4f")
-        print(f"Received trans: {self.trans[:3]}, rot: {self.trans[3:]}")
+        # print(f"Received trans: {self.trans[:3]}, rot: {self.trans[3:]}")
     
     def receive_color(self):
         data = self.socket_receiver.receive_data(variable_length=True)
@@ -319,7 +336,7 @@ class ServerFeaturePointCloudMap:
             color_img = cv2.imdecode(np_array, cv2.IMREAD_COLOR)
             color = cv2.cvtColor(color_img, cv2.COLOR_BGR2RGB)
             self.pil_image = PILImage.fromarray(color)
-            print(f"Received color: {color.shape}")
+            # print(f"Received color: {color.shape}")
         else:
             print("Received empty color data")
             return None
@@ -329,7 +346,7 @@ class ServerFeaturePointCloudMap:
         if data is not None:
             np_array = np.frombuffer(data, np.uint8)
             self.depth = cv2.imdecode(np_array, cv2.IMREAD_UNCHANGED)
-            print(f"Received depth: {self.depth.shape}")
+            # print(f"Received depth: {self.depth.shape}")
         else:
             print("Received empty depth data")
             return None
@@ -370,19 +387,23 @@ class ServerFeaturePointCloudMap:
         for feat_mean, pixels in key_pixels:
             points = []
             for i in range(len(pixels[0])):
-                point = self.rscalc.calculate_point(int(pixels[0][i]), int(pixels[1][i]),threshold_depth=2.0)
-                if point is not None:
-                    points.append(point)
-            if len(points) == 0:
-                continue
+                point = self.rscalc.calculate_point(int(pixels[0][i]), int(pixels[1][i]))
+                points.append(point)
             point_mean = np.mean(points, axis=0)
-            key_points.append((feat_mean, point_mean))
+            # calculate distance from the point_mean
+            distance = np.linalg.norm(point_mean)
+            if distance > self.distance_threshold:
+                num_pixel = len(pixels[0])
+                metric = self.object_clear_metric(num_pixel, distance)
+                key_points.append((feat_mean, point_mean, metric))
         return key_points
     
     def feat_to_points(self):
         features = self.fip.PCA_cuda(self.current_feature)
-        clustered_image = self.fip.Cluster_cuda(features)
-        key_pixels = self.fip.obtain_key_pixels(self.current_feature, clustered_image)
+        clustered_image = self.fip.Cluster_cuda(features=features, n_clusters=50)
+        key_pixels = self.fip.obtain_key_pixels(feat=self.current_feature, 
+                                                clustered_image=clustered_image, 
+                                                pixels_percent=self.pixel_percent_for_distance)
         self.rscalc.update_depth(self.depth)
         self.key_points = self.obtain_key_points(key_pixels)
 
@@ -412,14 +433,23 @@ class ServerFeaturePointCloudMap:
         if self.key_points is None:
             print("No Key Points This Frame")
         else:
-            for feat_mean, point_mean in self.key_points:
+            for feat_mean, point_mean, metric in self.key_points:
                 point_mean = np.dot(rotation_matrix, point_mean) + translation
                 point_mean = point_mean // self.round_to * self.round_to
-                self.fpc[tuple(point_mean)] = feat_mean
+                # how to know whether a key is in the fpc
+                if tuple(point_mean) in self.fpc:
+                    if metric < self.fpc[tuple(point_mean)][1]:
+                        self.fpc[tuple(point_mean)] = (feat_mean, metric)
+                else:
+                    self.fpc[tuple(point_mean)] = [feat_mean, metric]
     
     def save_fpc(self, file_name):
         with open(file_name, "wb") as f:
             pickle.dump(self.fpc, f)
+    
+    def read_fpc(self, file_name):
+        with open(file_name, "rb") as f:
+            self.fpc = pickle.load(f)
     
     def receive_data_and_update(self):
         if self.model is None or self.socket_receiver.conn is None: 
@@ -441,13 +471,24 @@ class ServerFeaturePointCloudMap:
             text_feat = self.model.encode_text(text)
         similarities = []
         for feat in features:
-            similarities.append(feat.half() @ text_feat.t())
+            sim = feat.half() @ text_feat.t()
+            similarities.append(sim)
         similarities = torch.cat(similarities)
         similarities = similarities.cpu().detach().numpy()
         return similarities
     
+    def point_sim_above_threshold(self, text, angle_threshold=np.pi/12):
+        threshold = np.cos(angle_threshold)
+        list_of_features = [value[0] for value in self.fpc.values()]
+        similarities = self.similarity(text, list_of_features)
+        indices = np.where(similarities > threshold)
+        print(indices)
+        points = [list(self.fpc.keys())[i] for i in list(indices)[0]]
+        return points
+    
     def max_sim_feature(self, text):
-        similarities = self.similarity(text, list(self.fpc.values()))
+        list_of_features = [value[0] for value in self.fpc.values()]
+        similarities = self.similarity(text, list_of_features)
         return list(self.fpc.keys())[np.argmax(similarities)]
 
 class TextQueryReceiver:
@@ -483,17 +524,21 @@ class TextQueryReceiver:
     def receive_query(self):
         while self.running:
             try:
-                data = self.conn.recv(1024).decode()
+                angle = struct.unpack("<f", self.conn.recv(4))[0]
+                object_name = self.conn.recv(1024).decode()
                 if self.sfpc.fpc == {}:
+                    self.conn.sendall(struct.pack("<L", 0))
                     print("Feature Point Cloud is empty.")
-                    self.conn.sendall("Feature Point Cloud is empty.".encode())
                 else:
-                    if data:
-                        print(f"Received query: {data}")
-                        max_point = self.sfpc.max_sim_feature(str(data))
-                        print(f"Max similarity point: {max_point}")
-                        # send a tuple of 3 floats
-                        self.conn.sendall(struct.pack("<3f", *max_point))
+                    print(f"Received query: {object_name}")
+                    point_list = self.sfpc.point_sim_above_threshold(object_name, angle_threshold=angle)
+                    print(f"Found {len(point_list)} points.")
+                    num_points = len(point_list)
+                    # first send number of points, then send each point
+                    self.conn.sendall(struct.pack("<L", num_points))
+                    for point in point_list:
+                        self.conn.sendall(struct.pack("<3f", *point))
+
             except socket.error:
                 break
 
