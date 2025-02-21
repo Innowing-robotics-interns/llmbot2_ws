@@ -1,6 +1,7 @@
 import socket
 import struct
 import numpy as np
+from sklearn.cluster import DBSCAN
 
 class SocketSender:
     def __init__(self, host='fyp', port=6000):
@@ -47,6 +48,12 @@ class SocketSender:
             else:
                 return angle, num_points, points
         return angle, num_points, points
+    
+    def dbscan(self, points, eps=0.5, min_samples=5):
+        clustering = DBSCAN(eps=eps, min_samples=min_samples).fit(points)
+        clustering.labels_
+        label = np.bincount(clustering.labels_).argmax()
+        return np.mean(points[clustering.labels_ == label])
 
     def __del__(self):
         self.socket.close()
@@ -62,3 +69,4 @@ if __name__ == "__main__":
         query = input("Enter your query: ")
         angle, num_points, points = sender.looking_for_some_points(query)
         print(f"Angle: {angle}, Number of points: {num_points}, Points: {points}")
+        print(f"Mean of common cluster: {sender.dbscan(points)}")
