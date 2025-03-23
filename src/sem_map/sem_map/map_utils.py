@@ -136,11 +136,6 @@ class RealSensePointCalculator:
         # Deprojection of depth camera pixel to 3D point
         depth_pixel_y = pixel_y + self.y_offset
         depth_pixel_x = pixel_x + self.x_offset
-        # depth_pixel_y = pixel_y
-        # depth_pixel_x = pixel_x
-
-        # depth_pixel_y = int((pixel_y - self.cam_frame_size[0] // 2) + self.cam_frame_size[0] // 2)
-        # depth_pixel_x = int((pixel_x - self.cam_frame_size[1] // 2) + self.cam_frame_size[1] // 2)
         depth = (
             self.depth_image[depth_pixel_y, depth_pixel_x] * 0.001
         )  # Convert from mm to meters
@@ -297,6 +292,7 @@ class ServerFeaturePointCloudMap:
                 transforms.ToTensor(),  # Convert to tensor
             ]
         )
+
         self.current_feature = None
 
         self.total_pixel = 480 * 480

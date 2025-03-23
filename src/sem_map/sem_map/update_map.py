@@ -6,7 +6,7 @@ import rclpy.logging
 import time
 
 # Before running this, add lang-seg folder to your python path
-from .LoadLSeg import *
+from .load_lseg import *
 
 from .map_utils import *
 
