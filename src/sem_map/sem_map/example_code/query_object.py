@@ -1,3 +1,5 @@
+import ultralytics
+print(ultralytics.__file__)
 import rclpy
 import rclpy.logging
 from rclpy.executors import MultiThreadedExecutor
@@ -7,7 +9,7 @@ import time
 # Before running this, add lang-seg folder to your python path
 from .LoadLSeg import *
 
-from .map_utils import PointCloudManager
+from ..version_1_code.map_utils import PointCloudManager
 
 import pickle
 

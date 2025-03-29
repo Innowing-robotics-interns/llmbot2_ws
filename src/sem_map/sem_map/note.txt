@@ -1,3 +1,17 @@
+待办：
+
+实现点擦除
+- 测试tf传输 \/
+- 自定义新msg进行image trans通信\/
+- 测试使用相机深度和tf建点云图
+--- 新写程序
+--- semantic map加入合适method进行transform
+--- 加入可视化
+- 测试用深度图擦除点云
+- 开启image extractor测试
+
+
+IDEAS:
 
 一：有没有判定feature丰富的方法，feature丰富的图多处理，不丰富的少处理
 

@@ -1,4 +1,3 @@
-from utils import *
 from params import *
 
 # class LSegFeatImageProcessor
@@ -14,6 +13,22 @@ from skimage.measure import label
 # class ImageSemanticExtractorYOLO
 from ultralytics import YOLO
 
+def encode_text(text):
+    return lseg_model.encode_text(text)
+
+def similarity(text_feat, features):
+    similarities = []
+    for feat in features:
+        sim = feat.half() @ text_feat.t()
+        similarities.append(sim)
+    similarities = torch.cat(similarities)
+    similarities = similarities.cpu().detach().numpy()
+    return similarities
+
+def max_sim_feature_index(list_of_features, text_feat):
+    similarities = similarity(text_feat, list_of_features)
+    return np.argmax(similarities)
+
 class LSegFeatImageProcessor:
     def __init__(self, model=lseg_model):
         self.model = model
@@ -28,9 +43,11 @@ class LSegFeatImageProcessor:
             ]
         )
         self.current_features = None
-
         self.current_image = None
-        self.image_original_size = [None, None]
+
+        # self.image_original_size = [640, 480]
+        self.image_offset_x = 80
+        self.image_offset_y = 0
     
     def update_current_image(self, pil_image):
         self.image_original_size = [pil_image.height, pil_image.width]
@@ -130,7 +147,7 @@ class LSegFeatImageProcessor:
         '''
         pixels_percent = pixels_percent % 1
         num_class = clustered_image.max() + 1
-        key_pixels = []
+        feat_pixel_pair = []
         for i in range(num_class):
             class_feat = feat[clustered_image == i]
             if len(class_feat) == 0:
@@ -140,20 +157,20 @@ class LSegFeatImageProcessor:
             if len(class_pixel[0]) < rule_out_threshold:
                 continue
             indices = np.random.choice(len(class_pixel[0]), int(pixels_percent * len(class_pixel[0])), replace=False)
-            # key_pixels stores list of (feat_mean, [[pixel_y ...], [pixel_x...]])
-            key_pixels.append(
-                (feat_mean, [class_pixel[0][indices], class_pixel[1][indices]])
+            # feat_pixel_pair stores list of (feat_mean, [[pixel_y ...], [pixel_x...]])
+            feat_pixel_pair.append(
+                (feat_mean, (class_pixel[0][indices], class_pixel[1][indices]))
             )
-        return key_pixels
+        return feat_pixel_pair
     
-    def get_clustered_map(self, image, num_clusters=10):
+    def get_clustered_map(self, image, num_clusters=36):
         self.update_current_image(image)
         self.update_feature()
         features = self.PCA_cuda(self.current_features)
         clustered_image = self.Cluster_cuda(features, n_clusters=num_clusters)
         return clustered_image
 
-    def get_clustered_map_wo_relabel(self, image, num_clusters=10):
+    def get_clustered_map_wo_relabel(self, image, num_clusters=36):
         self.update_current_image(image)
         self.update_feature()
         features = self.PCA_cuda(self.current_features)
@@ -190,14 +207,37 @@ class LSegFeatImageProcessor:
             cropped_image = self.current_image[:, y_min:y_max, x_min:x_max]
             cropped_images.append(cropped_image)
         return cropped_images
+    
+    def get_feat_pixel_pair(self, image, n_pca_components=20, n_clusters=36, pixels_percent=0.3, rule_out_threshold=500):
+        self.update_current_image(image)
+        self.update_feature()
+        features = self.PCA_cuda(self.current_features, n_components=n_pca_components)
+        clustered_image = self.Cluster_cuda(features, n_clusters=36)
+        feat_pixel_pair = self.obtain_key_pixels(self.current_features, clustered_image, pixels_percent=pixels_percent, rule_out_threshold=rule_out_threshold)
+        return feat_pixel_pair
 
-class YOLOImageProcessor:
+class YOLO_CLIP_ImageProcessor:
     def __init__(self, model_path):
         self.model = YOLO(model_path)
+
+        self.image_offset_x = 0
+        self.image_offset_y = 0
     
-    def get_semantic(self, image):
+    def get_label(self, image):
         results = self.model(image)
         xywh = results[0].boxes.xywh
         names = [results[0].names[cls.item()] for cls in results[0].boxes.cls.int()]
         confs = results[0].boxes.conf
         return xywh, names, confs
+    
+    def get_feat_pixel_pair(self, image):
+        xywh, names, confs = self.get_label(image)
+        feat_pixel_pair = []
+        for i in range(len(xywh)):
+            x, y, w, h = xywh[i]
+            name = names[i]
+            feat_pixel_pair.append((encode_text(name)[0], (y, x)))
+        return feat_pixel_pair
+    
+
+

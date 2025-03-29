@@ -11,7 +11,10 @@ from PIL import Image as PILImage
 # class RealSensePointCalculator
 from cv_bridge import CvBridge
 import pyrealsense2 as rs
+import tf_transformations
 
+# others
+import torch
 
 class SocketReceiver:
     '''
@@ -107,7 +110,7 @@ class DepthCamSocketMaintainer(SocketReceiver):
     def receive_trans(self):
         # first 3 floats are translation, next 4 floats are rotation
         self.trans = self.receive_data(variable_length=False, formats="<3f4f")
-        # print(f"Received trans: {self.trans[:3]}, rot: {self.trans[3:]}")
+        print(f"Received trans: {self.trans[:3]}, rot: {self.trans[3:]}")
     
     def return_trans(self):
         return self.trans
@@ -160,23 +163,24 @@ class DepthCamSocketMaintainer(SocketReceiver):
             or self.trans is None
             or self.info is None)):
             self.handshake_receive_data()
+    
+    def socket_close(self):
+        self.conn.close()
+        self.server_socket.close()
 
 class RealSensePointCalculator:
-    def __init__(self, depth_frame_size=[480, 640], image_frame_size=[480, 480]):
+    def __init__(self):
         self.bridge = CvBridge()
         self.depth_image = None
         self.intrinsics = rs.intrinsics()
-        self.intrinsics.width = 848
+        self.intrinsics.width = 640
         self.intrinsics.height = 480
-        self.intrinsics.ppx = 430.2650451660156
-        self.intrinsics.ppy = 238.0896759033203
-        self.intrinsics.fx = 425.21417236328125
-        self.intrinsics.fy = 425.21417236328125
+        self.intrinsics.ppx = 331.9251708984375
+        self.intrinsics.ppy = 251.8136444091797
+        self.intrinsics.fx = 603.9647216796875
+        self.intrinsics.fy = 603.8241577148438
         self.intrinsics.model = rs.distortion.none
         self.intrinsics.coeffs = [0.0 for i in range(5)]
-        self.depth_frame_size = depth_frame_size
-        self.x_offset = self.depth_frame_size[1] // 2 - image_frame_size[1] // 2
-        self.y_offset = self.depth_frame_size[0] // 2 - image_frame_size[0] // 2
 
     def update_depth(self, depth_img):
         self.depth_image = depth_img
@@ -202,10 +206,10 @@ class RealSensePointCalculator:
         point = [point[2], -point[0], -point[1]]
         return point
 
-    def calculate_point_with_offset(self, pixel_y, pixel_x):
+    def calculate_point_with_offset(self, pixel_y, pixel_x, offset_x, offset_y):
         # Deprojection of depth camera pixel to 3D point
-        depth_pixel_y = pixel_y + self.y_offset
-        depth_pixel_x = pixel_x + self.x_offset
+        depth_pixel_y = pixel_y + offset_y
+        depth_pixel_x = pixel_x + offset_x
         depth = (
             self.depth_image[depth_pixel_y, depth_pixel_x] * 0.001
         )  # Convert from mm to meters
@@ -214,4 +218,53 @@ class RealSensePointCalculator:
         )
         point = [point[2], -point[0], -point[1]]
         return point
+    
+    def backproj_point_to_pixel_depth(self, point):
+        '''
+        Backprojection of 3D point to depth camera pixel.
+        Args:
+            point (list): 3D point in the format [x, y, z].
+        '''
+        pixel = rs.rs2_project_point_to_pixel(self.intrinsics, point)
+        pixel_y = int(pixel[1])
+        pixel_x = int(pixel[0])
+        # calculate depth of the point
+        depth = np.linalg.norm(point)
+        return pixel_y, pixel_x, depth
+    
+    def get_depth(self, pixel_y, pixel_x, offset_x, offset_y):
+        # Deprojection of depth camera pixel to 3D point
+        depth_pixel_y = pixel_y + offset_y
+        depth_pixel_x = pixel_x + offset_x
+        depth = self.depth_image[depth_pixel_y, depth_pixel_x] * 0.001
+        return depth
+    
+    def transform_point(self, point, trans, rot):
+        '''
+        Transform 3D point from camera frame to map frame.
+        Args:
+            point (list): 3D point in the format [x, y, z].
+            trans (list): Translation in the format [x, y, z].
+            rot (list): Rotation in the format [x, y, z, w].
+        '''
+        trans = np.array(trans)
+        rot = np.array(rot)
+        rotation_matrix = tf_transformations.quaternion_matrix(rotation)[:3, :3]
+        point= np.dot(rotation_matrix, point) + trans
+        return point
+    
+    def inverse_transform_point(self, point, trans, rot):
+        '''
+        Transform 3D point from map frame to camera frame.
+        Args:
+            point (list): 3D point in the format [x, y, z].
+            trans (list): Translation in the format [x, y, z].
+            rot (list): Rotation in the format [x, y, z, w].
+        '''
+        trans = np.array(trans)
+        rot = np.array(rot)
+        rotation_matrix = tf_transformations.quaternion_matrix(rotation)[:3, :3]
+        point = np.dot(rotation_matrix.T, point - trans)
+        return point
+
 
