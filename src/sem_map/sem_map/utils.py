@@ -15,6 +15,11 @@ import tf_transformations
 
 # others
 import torch
+from rclpy.node import Node
+# import PointCloud2 in the right way
+from sensor_msgs.msg import PointCloud
+from geometry_msgs.msg import Point32
+from std_msgs.msg import Header
 
 class SocketReceiver:
     '''
@@ -239,6 +244,34 @@ class RealSensePointCalculator:
         depth = self.depth_image[depth_pixel_y, depth_pixel_x] * 0.001
         return depth
     
+    def camera_transform(self, point):
+        '''
+        the actual deproject of the point cloud deprojects to 
+        the 'camera' where x is front, y is left, z is up.
+        however, the D435i_color_optical_frame is where
+        z is front, -x is left, -y is up. we want the points to
+        be in D435i_color_optical_frame.
+        '''
+        matrix = np.array([[0, 0, 1],
+                           [-1, 0, 0],
+                           [0, -1, 0]])
+        point = np.dot(matrix.T, point)
+        return point
+
+    def inverse_camera_transform(self, point):
+        '''
+        the actual deproject of the point cloud deprojects to
+        the 'camera' where x is front, y is left, z is up.
+        however, the D435i_color_optical_frame is where
+        z is front, -x is left, -y is up. we want the points to
+        go from D435i_color_optical_frame to the 'camera' frame.
+        '''
+        matrix = np.array([[0, 0, 1],
+                           [-1, 0, 0],
+                           [0, -1, 0]])
+        point = np.dot(matrix, point)
+        return point
+    
     def transform_point(self, point, trans, rot):
         '''
         Transform 3D point from camera frame to map frame.
@@ -249,8 +282,8 @@ class RealSensePointCalculator:
         '''
         trans = np.array(trans)
         rot = np.array(rot)
-        rotation_matrix = tf_transformations.quaternion_matrix(rotation)[:3, :3]
-        point= np.dot(rotation_matrix, point) + trans
+        rotation_matrix = tf_transformations.quaternion_matrix(rot)[:3, :3]
+        point= np.dot(rotation_matrix, self.camera_transform(point)) + trans
         return point
     
     def inverse_transform_point(self, point, trans, rot):
@@ -263,8 +296,30 @@ class RealSensePointCalculator:
         '''
         trans = np.array(trans)
         rot = np.array(rot)
-        rotation_matrix = tf_transformations.quaternion_matrix(rotation)[:3, :3]
-        point = np.dot(rotation_matrix.T, point - trans)
+        rotation_matrix = tf_transformations.quaternion_matrix(rot)[:3, :3]
+        point = np.dot(rotation_matrix.T, self.inverse_camera_transform(point) - trans)
         return point
+
+
+class PointCloudPublisher(Node):
+    def __init__(self):
+        super().__init__('point_cloud_publisher')
+        self.publisher = self.create_publisher(PointCloud, 'point_cloud', 10)
+        self.all_points = []
+    
+    def update_all_points(self, point_list):
+        self.all_points += point_list
+
+    def publish_point_cloud(self):
+        point_cloud_msg = PointCloud()
+        point_cloud_msg.header.stamp = self.get_clock().now().to_msg()
+        point_cloud_msg.header.frame_id = "map"
+        for point in self.all_points:
+            msg_point = Point32()
+            msg_point.x = point[0]
+            msg_point.y = point[1]
+            msg_point.z = point[2]
+            point_cloud_msg.points.append(msg_point)
+        self.publisher.publish(point_cloud_msg)
 
 

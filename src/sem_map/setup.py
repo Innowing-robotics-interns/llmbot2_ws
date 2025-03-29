@@ -28,6 +28,7 @@ setup(
                 'update_map = sem_map.update_map:main',
                 'image_socket_recv = sem_map.image_socket_recv:main',
                 'query_object = sem_map.query_object:main',
+                'test_transform_point = sem_map.test_transform_point:main',
         ],
     },
 )

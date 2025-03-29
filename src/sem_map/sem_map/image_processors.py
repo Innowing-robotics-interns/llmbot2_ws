@@ -1,7 +1,7 @@
-from params import *
+from .params import *
 
 # class LSegFeatImageProcessor
-from load_lseg import model as lseg_model
+from .load_lseg import model as lseg_model
 import torchvision.transforms as transforms
 import torch
 import numpy as np
@@ -11,7 +11,7 @@ import cupy
 from skimage.measure import label
 
 # class ImageSemanticExtractorYOLO
-from ultralytics import YOLO
+# from ultralytics import YOLO
 
 def encode_text(text):
     return lseg_model.encode_text(text)
@@ -147,7 +147,9 @@ class LSegFeatImageProcessor:
         '''
         pixels_percent = pixels_percent % 1
         num_class = clustered_image.max() + 1
-        feat_pixel_pair = []
+        # feat_pixel_pair = []
+        feat_list = []
+        pixel_list = []
         for i in range(num_class):
             class_feat = feat[clustered_image == i]
             if len(class_feat) == 0:
@@ -158,10 +160,12 @@ class LSegFeatImageProcessor:
                 continue
             indices = np.random.choice(len(class_pixel[0]), int(pixels_percent * len(class_pixel[0])), replace=False)
             # feat_pixel_pair stores list of (feat_mean, [[pixel_y ...], [pixel_x...]])
-            feat_pixel_pair.append(
-                (feat_mean, (class_pixel[0][indices], class_pixel[1][indices]))
-            )
-        return feat_pixel_pair
+            # feat_pixel_pair.append(
+            #     (feat_mean, (class_pixel[0][indices], class_pixel[1][indices]))
+            # )
+            feat_list.append(feat_mean)
+            pixel_list.append((class_pixel[0][indices], class_pixel[1][indices]))
+        return feat_list, pixel_list
     
     def get_clustered_map(self, image, num_clusters=36):
         self.update_current_image(image)
@@ -208,13 +212,13 @@ class LSegFeatImageProcessor:
             cropped_images.append(cropped_image)
         return cropped_images
     
-    def get_feat_pixel_pair(self, image, n_pca_components=20, n_clusters=36, pixels_percent=0.3, rule_out_threshold=500):
+    def get_feat_pixel_labels(self, image, n_pca_components=20, n_clusters=36, pixels_percent=0.3, rule_out_threshold=500):
         self.update_current_image(image)
         self.update_feature()
         features = self.PCA_cuda(self.current_features, n_components=n_pca_components)
         clustered_image = self.Cluster_cuda(features, n_clusters=36)
-        feat_pixel_pair = self.obtain_key_pixels(self.current_features, clustered_image, pixels_percent=pixels_percent, rule_out_threshold=rule_out_threshold)
-        return feat_pixel_pair
+        feat_list, pixel_list = self.obtain_key_pixels(self.current_features, clustered_image, pixels_percent=pixels_percent, rule_out_threshold=rule_out_threshold)
+        return feat_list, pixel_list, None
 
 class YOLO_CLIP_ImageProcessor:
     def __init__(self, model_path):
@@ -230,14 +234,18 @@ class YOLO_CLIP_ImageProcessor:
         confs = results[0].boxes.conf
         return xywh, names, confs
     
-    def get_feat_pixel_pair(self, image):
+    def get_feat_pixel_labels(self, image):
         xywh, names, confs = self.get_label(image)
-        feat_pixel_pair = []
+        # feat_pixel_pair = []
+        feat_list = []
+        pixel_list = []
         for i in range(len(xywh)):
             x, y, w, h = xywh[i]
             name = names[i]
-            feat_pixel_pair.append((encode_text(name)[0], (y, x)))
-        return feat_pixel_pair
+            # feat_pixel_pair.append((encode_text(name)[0], (y, x)))
+            feat_list.append(encode_text(name)[0])
+            pixel_list.append((y, x))
+        return feat_list, pixel_list, names
     
 
 
