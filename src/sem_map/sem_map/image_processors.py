@@ -10,8 +10,17 @@ from cuml.cluster import KMeans as cuKMeans
 import cupy
 from skimage.measure import label
 
-# class ImageSemanticExtractorYOLO
-# from ultralytics import YOLO
+# class YOLO_LSeg_ImageProcessor
+from ultralytics import YOLO
+
+'''
+Each ImageProcessor should have the following methods:
+- get_feat_pixel_labels(pil_image)
+return: 
+  - feat_list: list of features, in format: [feat1, feat2,...], each feat is a tensor
+  - pixel_list: list of pixels, in format: [(x,y), (x,y), ...]
+  - label_list: list of labels, in format: [label1, label2,...], can be None
+'''
 
 def encode_text(text):
     return lseg_model.encode_text(text)
@@ -50,7 +59,6 @@ class LSegFeatImageProcessor:
         self.image_offset_y = 0
     
     def update_current_image(self, pil_image):
-        self.image_original_size = [pil_image.height, pil_image.width]
         self.current_image = self.transform(pil_image)
 
     def update_feature(self):
@@ -143,7 +151,8 @@ class LSegFeatImageProcessor:
             rule_out_threshold (int): The threshold to rule out classes with fewer pixels.
 
         Returns:
-            list: The list of key pixels in the format of (feat_mean, [[pixel_y ...], [pixel_x...]]).
+            feat_list: The list of key features in the format of [feat_1, feat_2, ...].
+            pixel_list: The list of key pixels in the format of [[pixel_x, pixel_y]...]].
         '''
         pixels_percent = pixels_percent % 1
         num_class = clustered_image.max() + 1
@@ -155,16 +164,13 @@ class LSegFeatImageProcessor:
             if len(class_feat) == 0:
                 continue
             feat_mean = class_feat.mean(dim=0)
+            # class_pixel format: [[class_pixel_x, ...], [class_pixel_y, ...]]
             class_pixel = np.where(clustered_image == i)
             if len(class_pixel[0]) < rule_out_threshold:
                 continue
             indices = np.random.choice(len(class_pixel[0]), int(pixels_percent * len(class_pixel[0])), replace=False)
-            # feat_pixel_pair stores list of (feat_mean, [[pixel_y ...], [pixel_x...]])
-            # feat_pixel_pair.append(
-            #     (feat_mean, (class_pixel[0][indices], class_pixel[1][indices]))
-            # )
             feat_list.append(feat_mean)
-            pixel_list.append((class_pixel[0][indices], class_pixel[1][indices]))
+            pixel_list.append([int(class_pixel[1].mean()+self.image_offset_x), int(class_pixel[0].mean()+self.image_offset_y)])
         return feat_list, pixel_list
     
     def get_clustered_map(self, image, num_clusters=36):
@@ -181,37 +187,6 @@ class LSegFeatImageProcessor:
         clustered_image = self.Cluster_cuda_wo_relabel(features, n_clusters=num_clusters)
         return clustered_image
     
-    def get_bounding_boxes(self, clustered_image):
-        '''
-        Get bounding boxes from the clustered image.
-        Args:
-            clustered_image (numpy.ndarray): The clustered image.
-        Returns:
-            list: The list of bounding boxes in the format of (x_min, y_min, x_max, y_max).
-        '''
-        num_class = clustered_image.max() + 1
-        bounding_boxes = []
-        for i in range(num_class):
-            class_pixel = np.where(clustered_image == i)
-            if len(class_pixel[0]) == 0:
-                continue
-            x_min = class_pixel[1].min()
-            x_max = class_pixel[1].max()
-            y_min = class_pixel[0].min()
-            y_max = class_pixel[0].max()
-            bounding_boxes.append((x_min, y_min, x_max, y_max))
-        return bounding_boxes
-    
-    def get_cropped_images(self, boxes):
-        cropped_images = []
-        for box in boxes:
-            x_min, y_min, x_max, y_max = box
-            # cropped_image = self.current_image[y_min:y_max, x_min:x_max]
-            # Crop the image of size (3, 480, 480)
-            cropped_image = self.current_image[:, y_min:y_max, x_min:x_max]
-            cropped_images.append(cropped_image)
-        return cropped_images
-    
     def get_feat_pixel_labels(self, image, n_pca_components=20, n_clusters=36, pixels_percent=0.3, rule_out_threshold=500):
         self.update_current_image(image)
         self.update_feature()
@@ -220,8 +195,8 @@ class LSegFeatImageProcessor:
         feat_list, pixel_list = self.obtain_key_pixels(self.current_features, clustered_image, pixels_percent=pixels_percent, rule_out_threshold=rule_out_threshold)
         return feat_list, pixel_list, None
 
-class YOLO_CLIP_ImageProcessor:
-    def __init__(self, model_path):
+class YOLO_LSeg_ImageProcessor:
+    def __init__(self, model_path="/home/fyp/llmbot2_ws/src/sem_map/model/yolo11x.pt"):
         self.model = YOLO(model_path)
 
         self.image_offset_x = 0
@@ -239,12 +214,13 @@ class YOLO_CLIP_ImageProcessor:
         # feat_pixel_pair = []
         feat_list = []
         pixel_list = []
+        xywh = xywh.cpu().detach().numpy().tolist()
         for i in range(len(xywh)):
             x, y, w, h = xywh[i]
             name = names[i]
             # feat_pixel_pair.append((encode_text(name)[0], (y, x)))
             feat_list.append(encode_text(name)[0])
-            pixel_list.append((y, x))
+            pixel_list.append((int(x), int(y)))
         return feat_list, pixel_list, names
     
 

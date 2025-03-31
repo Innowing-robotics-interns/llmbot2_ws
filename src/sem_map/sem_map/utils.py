@@ -21,7 +21,7 @@ from sensor_msgs.msg import PointCloud
 from geometry_msgs.msg import Point32
 from std_msgs.msg import Header
 
-class SocketReceiver:
+class SocketReceiver():
     '''
     A class to handle socket communication for receiving transformation, color, depth, and info data.
 
@@ -115,7 +115,9 @@ class DepthCamSocketMaintainer(SocketReceiver):
     def receive_trans(self):
         # first 3 floats are translation, next 4 floats are rotation
         self.trans = self.receive_data(variable_length=False, formats="<3f4f")
-        print(f"Received trans: {self.trans[:3]}, rot: {self.trans[3:]}")
+        # print(f"Received trans: {self.trans[:3]}, rot: {self.trans[3:]}")
+        # use get logger instead
+        rclpy.logging.get_logger("DepthCamSocketMaintainer").info(f"Received trans: {self.trans[:3]}, rot: {self.trans[3:]}")
     
     def return_trans(self):
         return self.trans
@@ -208,28 +210,9 @@ class RealSensePointCalculator:
         point = rs.rs2_deproject_pixel_to_point(
             self.intrinsics, [pixel_x, pixel_y], depth
         )
-        point = [point[2], -point[0], -point[1]]
         return point
 
-    def calculate_point_with_offset(self, pixel_y, pixel_x, offset_x, offset_y):
-        # Deprojection of depth camera pixel to 3D point
-        depth_pixel_y = pixel_y + offset_y
-        depth_pixel_x = pixel_x + offset_x
-        depth = (
-            self.depth_image[depth_pixel_y, depth_pixel_x] * 0.001
-        )  # Convert from mm to meters
-        point = rs.rs2_deproject_pixel_to_point(
-            self.intrinsics, [depth_pixel_x, depth_pixel_y], depth
-        )
-        point = [point[2], -point[0], -point[1]]
-        return point
-    
     def backproj_point_to_pixel_depth(self, point):
-        '''
-        Backprojection of 3D point to depth camera pixel.
-        Args:
-            point (list): 3D point in the format [x, y, z].
-        '''
         depth = np.linalg.norm(point)
         if depth < 0.01:
             return None, None, depth
@@ -239,69 +222,18 @@ class RealSensePointCalculator:
         pixel_y = int(pixel[1])
         pixel_x = int(pixel[0])
         # calculate depth of the point
-        return pixel_y, pixel_x, depth
+        return pixel_y, pixel_x, depth * 1000
     
-    def get_depth(self, pixel_y, pixel_x, offset_x, offset_y):
-        # Deprojection of depth camera pixel to 3D point
-        depth_pixel_y = pixel_y + offset_y
-        depth_pixel_x = pixel_x + offset_x
-        depth = self.depth_image[depth_pixel_y, depth_pixel_x] * 0.001
-        return depth
-    
-    def camera_transform(self, point):
-        '''
-        the actual deproject of the point cloud deprojects to 
-        the 'camera' where x is front, y is left, z is up.
-        however, the D435i_color_optical_frame is where
-        z is front, -x is left, -y is up. we want the points to
-        be in D435i_color_optical_frame.
-        '''
-        matrix = np.array([[0, -1, 0],
-                           [0, 0, -1],
-                           [1, 0, 0]])
-        point = np.dot(matrix, point)
-        return point
-
-    def inverse_camera_transform(self, point):
-        '''
-        the actual deproject of the point cloud deprojects to
-        the 'camera' where x is front, y is left, z is up.
-        however, the D435i_color_optical_frame is where
-        z is front, -x is left, -y is up. we want the points to
-        go from D435i_color_optical_frame to the 'camera' frame.
-        '''
-        matrix = np.array([[0, 0, 1],
-                           [-1, 0, 0],
-                           [0, -1, 0]])
-        point = np.dot(matrix, point)
-        return point
-    
-    def transform_point(self, point, trans, rot):
-        '''
-        Transform 3D point from camera frame to map frame.
-        Args:
-            point (list): 3D point in the format [x, y, z].
-            trans (list): Translation in the format [x, y, z].
-            rot (list): Rotation in the format [x, y, z, w].
-        '''
-        trans = np.array(trans)
-        rot = np.array(rot)
+    def transform_to_point(self, point, trans, rot):
         rotation_matrix = tf_transformations.quaternion_matrix(rot)[:3, :3]
-        point= np.dot(rotation_matrix, self.camera_transform(point)) + trans
+        # point= np.dot(rotation_matrix, self.camera_transform(point)) + trans
+        point= np.dot(rotation_matrix, point) + trans
         return point
     
-    def inverse_transform_point(self, point, trans, rot):
-        '''
-        Transform 3D point from map frame to camera frame.
-        Args:
-            point (list): 3D point in the format [x, y, z].
-            trans (list): Translation in the format [x, y, z].
-            rot (list): Rotation in the format [x, y, z, w].
-        '''
-        trans = np.array(trans)
-        rot = np.array(rot)
+    def inverse_transform_to_pixel(self, point, trans, rot):
         rotation_matrix = tf_transformations.quaternion_matrix(rot)[:3, :3]
-        point = self.inverse_camera_transform(np.dot(rotation_matrix.T, point - trans))
+        # point = self.inverse_camera_transform(np.dot(rotation_matrix.T, point - trans))
+        point = np.dot(rotation_matrix.T, point - trans)
         return point
 
 
@@ -328,4 +260,15 @@ class PointCloudPublisher(Node):
             point_cloud_msg.points.append(msg_point)
         self.publisher.publish(point_cloud_msg)
 
+    def publish_input_point_cloud(self, point_list):
+        point_cloud_msg = PointCloud()
+        point_cloud_msg.header.stamp = self.get_clock().now().to_msg()
+        point_cloud_msg.header.frame_id = "map"
+        for point in point_list:
+            msg_point = Point32()
+            msg_point.x = point[0]
+            msg_point.y = point[1]
+            msg_point.z = point[2]
+            point_cloud_msg.points.append(msg_point)
+        self.publisher.publish(point_cloud_msg)
 

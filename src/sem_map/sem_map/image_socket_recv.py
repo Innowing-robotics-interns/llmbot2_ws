@@ -6,6 +6,7 @@ from sensor_msgs.msg import Image
 from geometry_msgs.msg import TransformStamped
 import tf2_ros
 from interfaces.msg import ColorDepthTrans
+import time
 
 class SocketPublisher(Node):
     def __init__(self):
@@ -81,16 +82,17 @@ def main(args=None):
     print("Socket connected")
     try:
         while rclpy.ok():
-            dcm.send_handshake("trans")
-            dcm.receive_trans()
-            trans_array = dcm.return_trans()
-            dcm.send_handshake("color")
-            dcm.receive_color()
-            color_image = dcm.return_color()
             dcm.send_handshake("depth")
             dcm.receive_depth()
             depth_image = dcm.return_depth()
+            dcm.send_handshake("color")
+            dcm.receive_color()
+            color_image = dcm.return_color()
+            dcm.send_handshake("trans")
+            dcm.receive_trans()
+            trans_array = dcm.return_trans()
             sp.publish_images(color_image, depth_image, trans_array)
+            # time.sleep(0.3)
 
     except KeyboardInterrupt:
         print("Shutting down due to KeyboardInterrupt")
