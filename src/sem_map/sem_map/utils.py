@@ -230,11 +230,15 @@ class RealSensePointCalculator:
         Args:
             point (list): 3D point in the format [x, y, z].
         '''
+        depth = np.linalg.norm(point)
+        if depth < 0.01:
+            return None, None, depth
         pixel = rs.rs2_project_point_to_pixel(self.intrinsics, point)
+        if pixel[0] is None or pixel[1] is None:
+            raise Exception('Calculated Pixel is None')
         pixel_y = int(pixel[1])
         pixel_x = int(pixel[0])
         # calculate depth of the point
-        depth = np.linalg.norm(point)
         return pixel_y, pixel_x, depth
     
     def get_depth(self, pixel_y, pixel_x, offset_x, offset_y):
@@ -252,10 +256,10 @@ class RealSensePointCalculator:
         z is front, -x is left, -y is up. we want the points to
         be in D435i_color_optical_frame.
         '''
-        matrix = np.array([[0, 0, 1],
-                           [-1, 0, 0],
-                           [0, -1, 0]])
-        point = np.dot(matrix.T, point)
+        matrix = np.array([[0, -1, 0],
+                           [0, 0, -1],
+                           [1, 0, 0]])
+        point = np.dot(matrix, point)
         return point
 
     def inverse_camera_transform(self, point):
@@ -297,7 +301,7 @@ class RealSensePointCalculator:
         trans = np.array(trans)
         rot = np.array(rot)
         rotation_matrix = tf_transformations.quaternion_matrix(rot)[:3, :3]
-        point = np.dot(rotation_matrix.T, self.inverse_camera_transform(point) - trans)
+        point = self.inverse_camera_transform(np.dot(rotation_matrix.T, point - trans))
         return point
 
 
@@ -305,16 +309,18 @@ class PointCloudPublisher(Node):
     def __init__(self):
         super().__init__('point_cloud_publisher')
         self.publisher = self.create_publisher(PointCloud, 'point_cloud', 10)
-        self.all_points = []
+        self.all_points = {}
     
     def update_all_points(self, point_list):
-        self.all_points += point_list
+        # add points to the all_points set
+        for point in point_list:
+            self.all_points[tuple(point)] = None
 
     def publish_point_cloud(self):
         point_cloud_msg = PointCloud()
         point_cloud_msg.header.stamp = self.get_clock().now().to_msg()
         point_cloud_msg.header.frame_id = "map"
-        for point in self.all_points:
+        for point in self.all_points.keys():
             msg_point = Point32()
             msg_point.x = point[0]
             msg_point.y = point[1]

@@ -28,6 +28,9 @@ class SemanticMapMaintainer(Node):
         self.image_semantic_extractor = image_semantic_extractor
         self.semantic_point_cloud = {} # dict in the format of (x,y,z):SemanticPoint
         self.rscalc = RealSensePointCalculator()
+
+        image_width = 640
+        image_height = 480
     
     def get_feat_pixel(self, **kwargs):
         feat_list, pixel_list, label_list = self.image_semantic_extractor.get_feat_pixel_labels(self.pil_image, **kwargs)
@@ -55,6 +58,41 @@ class SemanticMapMaintainer(Node):
     
     def update_depth(self):
         self.rscalc.update_depth(self.depth)
+    
+    def transform_pixels_to_camera_frame_points(self, pixel_list):
+        point_list = []
+        for i in range(len(pixel_list)):
+            point = self.rscalc.calculate_point_with_offset(pixel_y=pixel_list[i][1],
+                                                            pixel_x=pixel_list[i][0],
+                                                            offset_x=0,
+                                                            offset_y=0)
+            point_list.append(point)
+        return point_list
+    
+    def transform_camera_frame_points_to_world_frame_points(self, point_list):
+        point_list_world_frame = []
+        for i in range(len(point_list)):
+            point = self.rscalc.transform_point(point=point_list[i],
+                                                trans=self.trans[:3],
+                                                rot=self.trans[3:])
+            point_list_world_frame.append(point)
+        return point_list_world_frame
+    
+    def transform_world_frame_points_to_camera_frame_points(self, point_list):
+        point_list_camera_frame = []
+        for i in range(len(point_list)):
+            point = self.rscalc.inverse_transform_point(point=point_list[i],
+                                                        trans=self.trans[:3],
+                                                        rot=self.trans[3:])
+            point_list_camera_frame.append(point)
+        return point_list_camera_frame
+    
+    def transform_camera_frame_points_to_pixel_depth(self, point_list):
+        pixel_depth_list = []
+        for i in range(len(point_list)):
+            pixel_y, pixel_x, depth = self.rscalc.backproj_point_to_pixel_depth(point=point_list[i])
+            pixel_depth_list.append((pixel_x, pixel_y, depth))
+        return pixel_depth_list
 
     def transform_points(self, pixel_list):
         point_list = []
@@ -72,6 +110,38 @@ class SemanticMapMaintainer(Node):
                                                             rot=self.trans[3:])
             point_list.append(point_transformed)
         return point_list
+    
+    def inverse_transform_points(self, point_list):
+        pixel_list_inverse = []
+        for i in range(len(point_list)):
+            point_inverse = self.rscalc.inverse_transform_point(point=point_list[i],
+                                                                trans=self.trans[:3],
+                                                                rot=self.trans[3:])
+            pixel_y, pixel_x, depth = self.rscalc.backproj_point_to_pixel_depth(point=point_inverse)
+            pixel_list_inverse.append((pixel_x, pixel_y))
+        return pixel_list_inverse
+    
+    def should_erase_point(self, point_world_frame):
+        # convert point in world frame to camera frame
+        if point_world_frame is None:
+            raise Exception('Point is None')
+        point = self.rscalc.inverse_transform_point(point=point_world_frame,
+                                                    trans=self.trans[:3],
+                                                    rot=self.trans[3:])
+        if point is None:
+            raise Exception('Point is None 2')
+        pixel_y, pixel_x, depth = self.rscalc.backproj_point_to_pixel_depth(point=point)
+
+        if pixel_x == None or pixel_y == None or depth == None:
+            return True
+        if pixel_x < 0 or pixel_x >= 640 or pixel_y < 0 or pixel_y >= 480:
+            return False
+        # remember to convert depth from mm to m
+        if self.depth[pixel_y, pixel_x] is None:
+            return True
+        if depth > self.depth[pixel_y, pixel_x] * 0.001:
+            return True
+        return False
     
     def back_transform_point_clouds(self):
         point_cloud = []
