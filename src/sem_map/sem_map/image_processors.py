@@ -22,6 +22,14 @@ return:
   - label_list: list of labels, in format: [label1, label2,...], can be None
 '''
 
+def create_processor(image_processr_name, **kwargs):
+    if image_processr_name == 'lseg_feat':
+        return LSegFeatImageProcessor(**kwargs)
+    elif image_processr_name == 'yolo_lseg':
+        return YOLO_LSeg_ImageProcessor(**kwargs)
+    else:
+        raise ValueError('Unknown image processor name: {}'.format(image_processr_name))
+
 def encode_text(text):
     return lseg_model.encode_text(text)
 

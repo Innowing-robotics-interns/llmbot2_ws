@@ -15,6 +15,7 @@ setup(
             ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
         (os.path.join('share', package_name, 'launch'), glob(os.path.join('launch', '*launch.[pxy][yma]*'))),
+        (os.path.join('share', package_name, 'launch'), glob('launch/*'))
     ],
     install_requires=['setuptools'],
     zip_safe=True,
@@ -29,6 +30,7 @@ setup(
                 'image_socket_recv = sem_map.image_socket_recv:main',
                 'query_object = sem_map.query_object:main',
                 'test_transform_point = sem_map.test_transform_point:main',
+                'sem_map_service = sem_map.sem_map_service:main',
         ],
     },
 )
