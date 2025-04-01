@@ -224,13 +224,13 @@ class RealSensePointCalculator:
         # calculate depth of the point
         return pixel_y, pixel_x, depth * 1000
     
-    def transform_to_point(self, point, trans, rot):
+    def transform_point(self, point, trans, rot):
         rotation_matrix = tf_transformations.quaternion_matrix(rot)[:3, :3]
         # point= np.dot(rotation_matrix, self.camera_transform(point)) + trans
         point= np.dot(rotation_matrix, point) + trans
         return point
     
-    def inverse_transform_to_pixel(self, point, trans, rot):
+    def inverse_transform(self, point, trans, rot):
         rotation_matrix = tf_transformations.quaternion_matrix(rot)[:3, :3]
         # point = self.inverse_camera_transform(np.dot(rotation_matrix.T, point - trans))
         point = np.dot(rotation_matrix.T, point - trans)

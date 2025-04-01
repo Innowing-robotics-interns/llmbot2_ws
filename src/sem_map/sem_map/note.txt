@@ -1,5 +1,10 @@
 待办：
 
+1. 写出建图service程序，并测试找点
+2. 写出launch程序和config文件
+3. 写出找点socket通信
+
+done:
 实现点擦除
 - 测试tf传输 \/
 - 自定义新msg进行image trans通信\/

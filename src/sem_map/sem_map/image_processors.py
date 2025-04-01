@@ -168,7 +168,6 @@ class LSegFeatImageProcessor:
             class_pixel = np.where(clustered_image == i)
             if len(class_pixel[0]) < rule_out_threshold:
                 continue
-            indices = np.random.choice(len(class_pixel[0]), int(pixels_percent * len(class_pixel[0])), replace=False)
             feat_list.append(feat_mean)
             pixel_list.append([int(class_pixel[1].mean()+self.image_offset_x), int(class_pixel[0].mean()+self.image_offset_y)])
         return feat_list, pixel_list
