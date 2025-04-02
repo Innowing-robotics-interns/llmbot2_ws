@@ -31,6 +31,7 @@ setup(
                 'test_transform_point = sem_map.test_transform_point:main',
                 'sem_map_service_yolo_lseg = sem_map.sem_map_service_yolo_lseg:main',
                 'sem_map_service_lseg_feat = sem_map.sem_map_service_lseg_feat:main',
+                'query_socket_handler = sem_map.query_socket_handler:main'
         ],
     },
 )

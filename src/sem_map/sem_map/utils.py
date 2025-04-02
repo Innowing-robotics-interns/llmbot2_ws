@@ -114,6 +114,11 @@ class SocketReceiver():
                 print("Received invalid data")
                 return None
 
+    def socket_close(self):
+        self.conn.close()
+        self.server_socket.close()
+
+
 class DepthCamSocketMaintainer(SocketReceiver):
     def __init__(self):
         super().__init__()
@@ -188,9 +193,6 @@ class DepthCamSocketMaintainer(SocketReceiver):
             or self.info is None)):
             self.handshake_receive_data()
     
-    def socket_close(self):
-        self.conn.close()
-        self.server_socket.close()
 
 class RealSensePointCalculator:
     def __init__(self):

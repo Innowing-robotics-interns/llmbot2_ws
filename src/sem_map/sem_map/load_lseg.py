@@ -1,5 +1,4 @@
-Lang_Seg_Path = "/home/fyp/lang-seg"
-
+from .utils import *
 import os
 import argparse
 import numpy as np
