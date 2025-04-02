@@ -20,6 +20,12 @@ return:
   - feat_list: list of features, in format: [feat1, feat2,...], each feat is a tensor
   - pixel_list: list of pixels, in format: [(x,y), (x,y), ...]
   - label_list: list of labels, in format: [label1, label2,...], can be None
+
+and the following member variables:
+self.name
+self.label_used
+self.image_offset_x
+self.image_offset_y
 '''
 
 def create_processor(image_processr_name, **kwargs):
@@ -48,8 +54,11 @@ def max_sim_feature_index(list_of_features, text_feat):
 
 class LSegFeatImageProcessor:
     def __init__(self, model=lseg_model):
+        self.name = 'lseg_feat'
+
+        self.label_used = False
+
         self.model = model
-        
         self.transform = transforms.Compose(
             [
                 transforms.Resize(
@@ -61,7 +70,6 @@ class LSegFeatImageProcessor:
         )
         self.current_features = None
         self.current_image = None
-
         # self.image_original_size = [640, 480]
         self.image_offset_x = 80
         self.image_offset_y = 0
@@ -204,6 +212,9 @@ class LSegFeatImageProcessor:
 
 class YOLO_LSeg_ImageProcessor:
     def __init__(self, model_path="/home/fyp/llmbot2_ws/src/sem_map/model/yolo11x.pt"):
+        self.name = 'yolo_lseg'
+
+        self.label_used = True
         self.model = YOLO(model_path)
 
         self.image_offset_x = 0

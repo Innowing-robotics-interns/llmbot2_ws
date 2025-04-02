@@ -8,6 +8,7 @@ from geometry_msgs.msg import Point
 
 from .utils import *
 from .image_processors import *
+from .params import *
 from interfaces.msg import ColorDepthTrans
 
 import numpy as np
@@ -15,6 +16,43 @@ from scipy.spatial.transform import Rotation as R
 from PIL import Image
 import threading
 import uuid
+import pickle
+import time
+
+def load_semantic_map_core(map_config, image_processor_selection):
+    map_read_name = map_config['map_read_name']
+    map_save_name = map_config['map_save_name']
+    map_save_interval = map_config['map_save_interval']
+    max_depth_threshold = map_config['map_depth_threshold']
+    erase_point_depth_threshold = map_config['erase_point_depth_threshold']
+    erase_point_depth_tolerance = map_config['erase_point_depth_tolerance']
+    round_points_to = map_config['round_points_to']
+    z_axis_lower_bound = map_config['z_axis_lower_bound']
+    z_axis_upper_bound = map_config['z_axis_upper_bound']
+    # 打印加载语义地图核心的相关配置信息
+    print(f"Loading semantic map core with the following configuration:\n"
+          f"Map read name: {map_read_name}\n"
+          f"Map save name: {map_save_name}\n"
+          f"Map save interval: {map_save_interval}\n"
+          f"Max depth threshold: {max_depth_threshold}\n"
+          f"Erase point depth threshold: {erase_point_depth_threshold}\n"
+          f"Erase point depth tolerance: {erase_point_depth_tolerance}\n"
+          f"Round points to: {round_points_to}\n"
+          f"Z-axis lower bound: {z_axis_lower_bound}\n"
+          f"Z-axis upper bound: {z_axis_upper_bound}")
+    return SemanticMapCore(
+        image_semantic_extractor=create_processor(image_processor_selection),
+        map_read_name=map_read_name,
+        map_save_name=map_save_name,
+        map_save_interval=map_save_interval,
+        max_depth_threshold=max_depth_threshold,
+        erase_point_depth_threshold=erase_point_depth_threshold,
+        erase_point_depth_tolerance=erase_point_depth_tolerance,
+        round_points_to=round_points_to,
+        z_axis_lower_bound=z_axis_lower_bound,
+        z_axis_upper_bound=z_axis_upper_bound
+    )
+
 
 class SemanticPoint:
     def __init__(self, feat, label):
@@ -29,18 +67,20 @@ class SemanticPoint:
 class SemanticMapCore():
     def __init__(self, 
     image_semantic_extractor, 
+    map_read_name=None,
+    map_save_name=None,
+    map_save_interval=30,
     max_depth_threshold=2e3, 
     erase_point_depth_threshold=40000, 
     erase_point_depth_tolerance=100,
     round_points_to=0.05,
     z_axis_lower_bound=0.5,
     z_axis_upper_bound=2.0):
+
         self.pil_image = None
         self.depth = None
         self.trans = None
-
         self.max_depth_threshold = max_depth_threshold # in mm
-
         # if the robot is moving fast, trans and depth might not be synchronous,
         # so record previous and current trans and depth (also pil_image, since why not)
         # so that we can compare the two frames and decide whether to erase the point or not
@@ -50,23 +90,42 @@ class SemanticMapCore():
         self.erase_point_depth_threshold = erase_point_depth_threshold # in mm
         # self.erase_point_trans_threshold = 3
 
+        if image_semantic_extractor is None:
+            raise ValueError('image_semantic_extractor is None')
         self.image_semantic_extractor = image_semantic_extractor
-        self.semantic_point_cloud = {} # dict in the format of (x,y,z):SemanticPoint
-        self.rscalc = RealSensePointCalculator()
+        self.label_used = image_semantic_extractor.label_used
 
+        self.semantic_point_cloud = {} # dict in the format of (x,y,z):SemanticPoint
+        if (map_read_name is not None) and (map_read_name != ""):
+            map_read_name = sem_map_path + map_read_name + '.pkl'
+            with open(map_read_name, 'rb') as f:
+                self.semantic_point_cloud = pickle.load(f)
+        self.map_save_name = self.generate_new_map_name(map_save_name)
+        self.map_save_interval = map_save_interval # in rounds of updates
+
+        self.rscalc = RealSensePointCalculator()
         image_width = 640
         image_height = 480
-
         # The tolerance of the point to be erased in mm
         # if back_project_depth < current_view_depth - tolerance, the point is erased
         self.erase_point_depth_tolerance = 100
-
         # round points in x, y, z to precision of "round_points_to" value
         self.round_points_to = round_points_to
-
         self.z_axis_lower_bound = z_axis_lower_bound
         self.z_axis_upper_bound = z_axis_upper_bound
     
+    def generate_new_map_name(self, map_save_name):
+        now = time.localtime()
+        if (map_save_name is not None) and (map_save_name != ""):
+            return sem_map_path + map_save_name + time.strftime("%Y_%m_%d_%H_%M_%S", now) + '.pkl'
+        else:
+            return sem_map_path + self.image_semantic_extractor.name + time.strftime("%Y_%m_%d_%H_%M_%S", now) + '.pkl'
+    
+    def save_map(self):
+        with open(self.map_save_name, 'wb') as f:
+            pickle.dump(self.semantic_point_cloud, f)
+        print('Map saved to {}'.format(self.map_save_name))
+
     def update_depth(self, depth_image):
         self.prev_depth = self.depth
         self.depth = depth_image
@@ -205,13 +264,21 @@ class SemanticMapCore():
         found_labels = []
         found_points = []
         found_similarities = []
-        for i in range(len(list_of_SemPoints)):
-            similarity = list_of_SemPoints[i].feat @ text_feat.t()
-            similarity = similarity.cpu().detach().numpy().astype(np.float32).item()
-            if similarity > threshold:
-                found_labels.append(list_of_SemPoints[i].label)
-                found_points.append(list_of_points[i])
-                found_similarities.append(similarity)
+        if self.label_used:
+            for i in range(len(list_of_SemPoints)):
+                similarity = list_of_SemPoints[i].feat @ text_feat.t()
+                similarity = similarity.cpu().detach().numpy().astype(np.float32).item()
+                if similarity > threshold:
+                    found_labels.append(list_of_SemPoints[i].label)
+                    found_points.append(list_of_points[i])
+                    found_similarities.append(similarity)
+        else:
+            for i in range(len(list_of_SemPoints)):
+                similarity = list_of_SemPoints[i].feat @ text_feat.t()
+                similarity = similarity.cpu().detach().numpy().astype(np.float32).item()
+                if similarity > threshold:
+                    found_points.append(list_of_points[i])
+                    found_similarities.append(similarity)
         return found_similarities, found_points, found_labels
 
 class SemanticMapNode(Node):
