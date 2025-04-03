@@ -8,15 +8,18 @@ from rclpy.executors import SingleThreadedExecutor
 import struct
 from interfaces.msg import ObjectSem
 
-
 class SemanticQueryClient(Node):
     def __init__(self):
         super().__init__('semantic_query_handler')
 
+        config_file = read_config("config_query_socket_handler")
+        self.port_num = config_file['socket_connection']['port_num']
+
         self.sem_map_clients = {}
 
         self.socket_receiver = SocketReceiver()
-        self.socket_receiver.socket_connect(port_num=8896)
+        self.get_logger().info(f"Semantic Query Client waiting for connection at port num {self.port_num}")
+        self.socket_receiver.socket_connect(port_num=self.port_num)
         
         # 发现所有匹配的服务
         self.discover_services()
@@ -89,8 +92,17 @@ class SemanticQueryClient(Node):
                             '/' not in name[len('/semantic_query'):])]
         print(service_names)
         
+        list_of_client = self.sem_map_clients.keys()
+        for client in list_of_client:
+            if client not in service_names:
+                self.sem_map_clients.pop(client)
+                self.get_logger().info(f"delete client: {client}")
+
         # 为每个服务创建客户端
         for service_name in service_names:
+            if service_name in self.sem_map_clients:
+                self.get_logger().info(f"client {service_name} already exist")
+                continue
             self.sem_map_clients[service_name] = self.create_client(
                 SemanticQuery, 
                 service_name

@@ -8,6 +8,8 @@ import tf2_ros
 from interfaces.msg import ColorDepthTrans
 import time
 
+port_num = 8812
+
 class SocketPublisher(Node):
     def __init__(self):
         super().__init__('socket_publisher')
@@ -77,8 +79,9 @@ class SocketPublisher(Node):
 def main(args=None):
     rclpy.init(args=args)
     dcm = DepthCamSocketMaintainer()
-    dcm.socket_connect(port_num=8812)
     sp = SocketPublisher()
+    sp.get_logger().info(f"waiting for socket connection in {port_num}")
+    dcm.socket_connect(port_num=port_num)
     print("Socket connected")
     try:
         while rclpy.ok():
