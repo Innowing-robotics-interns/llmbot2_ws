@@ -7,6 +7,9 @@ from .utils import *
 from rclpy.executors import SingleThreadedExecutor
 import struct
 from interfaces.msg import ObjectSem
+from geometry_msgs.msg import Point
+from sensor_msgs.msg import PointCloud
+from geometry_msgs.msg import Point32
 
 class SemanticQueryClient(Node):
     def __init__(self):
@@ -14,12 +17,12 @@ class SemanticQueryClient(Node):
 
         config_file = read_config("config_query_socket_handler")
         self.port_num = config_file['socket_connection']['port_num']
-
         self.sem_map_clients = {}
-
         self.socket_receiver = SocketReceiver()
         self.get_logger().info(f"Semantic Query Client waiting for connection at port num {self.port_num}")
         self.socket_receiver.socket_connect(port_num=self.port_num)
+
+        self.publisher_found_points = self.create_publisher(PointCloud, 'sem_points_found_client', 10)
         
         # 发现所有匹配的服务
         self.discover_services()
@@ -30,6 +33,7 @@ class SemanticQueryClient(Node):
         results = self.trigger_all_queries(object_name, similarity)
         self.socket_receiver.conn.sendall(struct.pack('<L', self.number_of_server))
         list_service_name = list(results.keys())
+
         for i in range(self.number_of_server):
             message = ObjectSem()
             message.service_name = list_service_name[i]
@@ -44,6 +48,17 @@ class SemanticQueryClient(Node):
             self.socket_receiver.conn.sendall(struct.pack('<L', data_size)+serialized_message)
             print("send")
             self.wait_handshake("send_next")
+
+        point_cloud_msg = PointCloud()
+        point_cloud_msg.header.frame_id = "map"
+        for i in range(self.number_of_server):
+            for j in range(len(results[list_service_name[i]]['points'])):
+                point = Point32()
+                point.x = results[list_service_name[i]]['points'][j].x
+                point.y = results[list_service_name[i]]['points'][j].y
+                point.z = results[list_service_name[i]]['points'][j].z
+                point_cloud_msg.points.append(point)
+        self.publisher_found_points.publish(point_cloud_msg)
     
     def wait_similarity(self):
         data = struct.unpack('d', self.socket_receiver.conn.recv(8))

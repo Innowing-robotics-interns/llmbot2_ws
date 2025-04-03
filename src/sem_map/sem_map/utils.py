@@ -118,7 +118,6 @@ class SocketReceiver():
         self.conn.close()
         self.server_socket.close()
 
-
 class DepthCamSocketMaintainer(SocketReceiver):
     def __init__(self):
         super().__init__()
@@ -192,7 +191,6 @@ class DepthCamSocketMaintainer(SocketReceiver):
             or self.trans is None
             or self.info is None)):
             self.handshake_receive_data()
-    
 
 class RealSensePointCalculator:
     def __init__(self):

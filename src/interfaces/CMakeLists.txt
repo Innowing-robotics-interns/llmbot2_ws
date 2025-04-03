@@ -16,6 +16,8 @@ find_package(rosidl_default_generators REQUIRED)
 
 rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/ColorDepthTrans.msg"
+  "msg/ObjectSem.msg"
+  "msg/StringArray.msg"
   "srv/SemanticQuery.srv"
   DEPENDENCIES std_msgs geometry_msgs# Add packages that above messages depend on, in this case geometry_msgs for Sphere.msg
 )
