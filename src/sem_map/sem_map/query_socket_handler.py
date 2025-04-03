@@ -156,7 +156,6 @@ class SemanticQueryClient(Node):
                 }
         return results
 
-# 使用示例
 def main():
     rclpy.init()
     query_client = SemanticQueryClient()
