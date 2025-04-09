@@ -33,6 +33,10 @@ def create_processor(image_processr_name, **kwargs):
         return LSegFeatImageProcessor(**kwargs)
     elif image_processr_name == 'yolo_lseg':
         return YOLO_LSeg_ImageProcessor(**kwargs)
+    elif image_processr_name == 'yw_lseg':
+        return YW_LSeg_ImageProcessor(**kwargs)
+    elif image_processr_name == 'cyw1_lseg':
+        return CYW1_LSeg_ImageProcessor(**kwargs)
     else:
         raise ValueError('Unknown image processor name: {}'.format(image_processr_name))
 
@@ -241,5 +245,65 @@ class YOLO_LSeg_ImageProcessor:
             pixel_list.append((int(x), int(y)))
         return feat_list, pixel_list, names
     
+class YW_LSeg_ImageProcessor:
+    def __init__(self, model_path="/home/fyp/llmbot2_ws/src/sem_map/model/yolov8s-world.pt"):
+        self.name = 'yw_lseg'
 
+        self.label_used = True
+        self.model = YOLO(model_path)
+
+        self.image_offset_x = 0
+        self.image_offset_y = 0
+    
+    def get_label(self, image):
+        results = self.model(image)
+        xywh = results[0].boxes.xywh
+        names = [results[0].names[cls.item()] for cls in results[0].boxes.cls.int()]
+        confs = results[0].boxes.conf
+        return xywh, names, confs
+    
+    def get_feat_pixel_labels(self, image):
+        xywh, names, confs = self.get_label(image)
+        # feat_pixel_pair = []
+        feat_list = []
+        pixel_list = []
+        xywh = xywh.cpu().detach().numpy().tolist()
+        for i in range(len(xywh)):
+            x, y, w, h = xywh[i]
+            name = names[i]
+            # feat_pixel_pair.append((encode_text(name)[0], (y, x)))
+            feat_list.append(encode_text(name)[0])
+            pixel_list.append((int(x), int(y)))
+        return feat_list, pixel_list, names
+# Custom Yolo-World 1 Image Processor
+class CYW1_LSeg_ImageProcessor:
+    def __init__(self, model_path="/home/fyp/llmbot2_ws/src/sem_map/model/custom_yolov8s_world_1.pt"):
+        self.name = 'cyw1_lseg'
+
+        self.label_used = True
+        self.model = YOLO(model_path)
+
+        self.image_offset_x = 0
+        self.image_offset_y = 0
+    
+    def get_label(self, image):
+        results = self.model(image)
+        xywh = results[0].boxes.xywh
+        names = [results[0].names[cls.item()] for cls in results[0].boxes.cls.int()]
+        confs = results[0].boxes.conf
+        return xywh, names, confs
+    
+    def get_feat_pixel_labels(self, image):
+        xywh, names, confs = self.get_label(image)
+        # feat_pixel_pair = []
+        feat_list = []
+        pixel_list = []
+        xywh = xywh.cpu().detach().numpy().tolist()
+        for i in range(len(xywh)):
+            x, y, w, h = xywh[i]
+            name = names[i]
+            # feat_pixel_pair.append((encode_text(name)[0], (y, x)))
+            feat_list.append(encode_text(name)[0])
+            pixel_list.append((int(x), int(y)))
+        return feat_list, pixel_list, names
 
