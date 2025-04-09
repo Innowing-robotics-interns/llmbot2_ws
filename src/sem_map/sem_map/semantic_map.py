@@ -30,6 +30,7 @@ def load_semantic_map_core(map_config, image_processor_selection):
     round_points_to = map_config['round_points_to']
     z_axis_lower_bound = map_config['z_axis_lower_bound']
     z_axis_upper_bound = map_config['z_axis_upper_bound']
+    exception_point_xy_radius = map_config['exception_point_xy_radius']
     # 打印加载语义地图核心的相关配置信息
     print(f"Loading semantic map core with the following configuration:\n"
           f"Map read name: {map_read_name}\n"
@@ -40,7 +41,8 @@ def load_semantic_map_core(map_config, image_processor_selection):
           f"Erase point depth tolerance: {erase_point_depth_tolerance}\n"
           f"Round points to: {round_points_to}\n"
           f"Z-axis lower bound: {z_axis_lower_bound}\n"
-          f"Z-axis upper bound: {z_axis_upper_bound}")
+          f"Z-axis upper bound: {z_axis_upper_bound}\n"
+          f"exception_point_xy_radius: {exception_point_xy_radius}")
     return SemanticMapCore(
         image_semantic_extractor=create_processor(image_processor_selection),
         map_read_name=map_read_name,
@@ -51,9 +53,9 @@ def load_semantic_map_core(map_config, image_processor_selection):
         erase_point_depth_tolerance=erase_point_depth_tolerance,
         round_points_to=round_points_to,
         z_axis_lower_bound=z_axis_lower_bound,
-        z_axis_upper_bound=z_axis_upper_bound
+        z_axis_upper_bound=z_axis_upper_bound,
+        exception_point_xy_radius=exception_point_xy_radius
     )
-
 
 class SemanticPoint:
     def __init__(self, feat, label):
@@ -76,7 +78,8 @@ class SemanticMapCore():
     erase_point_depth_tolerance=100,
     round_points_to=0.05,
     z_axis_lower_bound=0.5,
-    z_axis_upper_bound=2.0):
+    z_axis_upper_bound=2.0,
+    exception_point_xy_radius=12.0):
 
         self.pil_image = None
         self.depth = None
@@ -114,6 +117,15 @@ class SemanticMapCore():
         self.round_points_to = round_points_to
         self.z_axis_lower_bound = z_axis_lower_bound
         self.z_axis_upper_bound = z_axis_upper_bound
+
+        self.exception_point_xy_radius = exception_point_xy_radius
+    
+    def point_too_far(self, point):
+        radius = np.sqrt(point[0]**2 + point[1]**2)
+        if radius > self.exception_point_xy_radius:
+            return True
+        else:
+            return False
     
     def generate_new_map_name(self, map_save_name):
         now = time.localtime()
@@ -240,7 +252,11 @@ class SemanticMapCore():
         if label_list is None:
             points_transformed = self.round_points(points_transformed)
             for i in range(len(points_transformed)):
-                if points_transformed[i] is None:
+                if (points_transformed[i] is None):
+                    continue
+                if self.point_too_far(points_transformed[i]):
+                    print(f"Point {points_transformed[i]} is out of bound {self.exception_point_xy_radius} m from origin")
+                    raise Exception('Point is too far')
                     continue
                 self.semantic_point_cloud[points_transformed[i]] = SemanticPoint(feature_list[i], None)
         else:
@@ -248,7 +264,11 @@ class SemanticMapCore():
                 raise Exception('Length of points_transformed and label_list is not the same')
             points_transformed = self.round_points(points_transformed)
             for i in range(len(points_transformed)):
-                if points_transformed[i] is None:
+                if (points_transformed[i] is None):
+                    continue
+                if self.point_too_far(points_transformed[i]):
+                    print(f"Point {points_transformed[i]} is out of bound {self.exception_point_xy_radius} m from origin")
+                    raise Exception('Point is too far')
                     continue
                 self.semantic_point_cloud[points_transformed[i]] = SemanticPoint(feature_list[i], label_list[i])
     

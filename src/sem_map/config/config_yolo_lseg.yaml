@@ -8,6 +8,7 @@ map_config:
   round_points_to: 0.15 # unit: m, every semantic point will be round to this precision
   z_axis_lower_bound: 0.0 # unit: m, every point with z value below this will not be put into semantic map
   z_axis_upper_bound: 2.5 # unit: m, every point with z value above this will not be put into semantic map
+  exception_point_xy_radius: 100.0 # unit: m, every point with x and y value within this radius will not be put into semantic map
 
 image_processor_config:
   name: yolo_lseg

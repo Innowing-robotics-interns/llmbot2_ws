@@ -176,6 +176,7 @@ def main():
         pass
     finally:
         query_client.socket_receiver.socket_close()
+        time.sleep(5)
         query_client.destroy_node()
         rclpy.shutdown()
 
