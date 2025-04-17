@@ -4,3 +4,4 @@ float32 similarity_threshold_rad
 float32[] similarities
 geometry_msgs/Point[] points
 string[] labels
+float32[] confs

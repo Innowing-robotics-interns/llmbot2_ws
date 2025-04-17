@@ -9,6 +9,7 @@ map_config:
   z_axis_lower_bound: 0.1 # unit: m, every point with z value below this will not be put into semantic map
   z_axis_upper_bound: 2.0 # unit: m, every point with z value above this will not be put into semantic map
   exception_point_xy_radius: 100.0 # unit: m, every point with x and y value out this radius will not be put into semantic map
+  image_processor_conf_threshold: 0.4
 
 image_processor_config:
   name: lseg_feat

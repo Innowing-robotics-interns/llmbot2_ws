@@ -31,6 +31,7 @@ def load_semantic_map_core(map_config, image_processor_selection):
     z_axis_lower_bound = map_config['z_axis_lower_bound']
     z_axis_upper_bound = map_config['z_axis_upper_bound']
     exception_point_xy_radius = map_config['exception_point_xy_radius']
+    image_processor_conf_threshold = map_config['image_processor_conf_threshold']
     # 打印加载语义地图核心的相关配置信息
     print(f"Loading semantic map core with the following configuration:\n"
           f"Map read name: {map_read_name}\n"
@@ -42,7 +43,8 @@ def load_semantic_map_core(map_config, image_processor_selection):
           f"Round points to: {round_points_to}\n"
           f"Z-axis lower bound: {z_axis_lower_bound}\n"
           f"Z-axis upper bound: {z_axis_upper_bound}\n"
-          f"exception_point_xy_radius: {exception_point_xy_radius}")
+          f"exception_point_xy_radius: {exception_point_xy_radius}\n"
+          f"Image processor confidence threshold: {image_processor_conf_threshold}\n")
     return SemanticMapCore(
         image_semantic_extractor=create_processor(image_processor_selection),
         map_read_name=map_read_name,
@@ -54,11 +56,12 @@ def load_semantic_map_core(map_config, image_processor_selection):
         round_points_to=round_points_to,
         z_axis_lower_bound=z_axis_lower_bound,
         z_axis_upper_bound=z_axis_upper_bound,
-        exception_point_xy_radius=exception_point_xy_radius
+        exception_point_xy_radius=exception_point_xy_radius,
+        image_processor_conf_threshold=image_processor_conf_threshold
     )
 
 class SemanticPoint:
-    def __init__(self, feat, label):
+    def __init__(self, feat, label, conf=None):
         '''
         Args:
             feat (1D torch tensor): The feature of the point.
@@ -66,6 +69,7 @@ class SemanticPoint:
         '''
         self.feat = feat
         self.label = label
+        self.conf = conf
         
 class SemanticMapCore():
     def __init__(self, 
@@ -79,7 +83,8 @@ class SemanticMapCore():
     round_points_to=0.05,
     z_axis_lower_bound=0.5,
     z_axis_upper_bound=2.0,
-    exception_point_xy_radius=12.0):
+    exception_point_xy_radius=12.0,
+    image_processor_conf_threshold=0.5):
 
         self.pil_image = None
         self.depth = None
@@ -97,6 +102,8 @@ class SemanticMapCore():
         if image_semantic_extractor is None:
             raise ValueError('image_semantic_extractor is None')
         self.image_semantic_extractor = image_semantic_extractor
+        self.image_semantic_extractor.conf_threshold = image_processor_conf_threshold
+
         self.label_used = image_semantic_extractor.label_used
 
         self.semantic_point_cloud = {} # dict in the format of (x,y,z):SemanticPoint
@@ -156,9 +163,9 @@ class SemanticMapCore():
         self.update_pil_image(pil_image)
         self.update_trans(trans)
 
-    def get_feat_pixel_label(self, **kwargs):
-        feat_list, pixel_list, label_list = self.image_semantic_extractor.get_feat_pixel_labels(self.pil_image, **kwargs)
-        return feat_list, pixel_list, label_list
+    def get_feat_pixel_label_conf(self, **kwargs):
+        feat_list, pixel_list, label_list, conf_list = self.image_semantic_extractor.get_feat_pixel_label_confs(self.pil_image, **kwargs)
+        return feat_list, pixel_list, label_list, conf_list
 
     def two_frame_difference_high(self):
         # calculate the difference between the current depth and the previous depth
@@ -246,7 +253,7 @@ class SemanticMapCore():
                             round(point_list[i][2]/self.round_points_to)*self.round_points_to)
         return point_list
     
-    def update_semantic_point_cloud(self, points_transformed, feature_list, label_list):
+    def update_semantic_point_cloud(self, points_transformed, feature_list, label_list, conf_list):
         if len(points_transformed) != len(feature_list):
             raise Exception('Length of points_transformed and feature_list is not the same')
         if label_list is None:
@@ -258,7 +265,7 @@ class SemanticMapCore():
                     print(f"Point {points_transformed[i]} is out of bound {self.exception_point_xy_radius} m from origin")
                     raise Exception('Point is too far')
                     continue
-                self.semantic_point_cloud[points_transformed[i]] = SemanticPoint(feature_list[i], None)
+                self.semantic_point_cloud[points_transformed[i]] = SemanticPoint(feature_list[i], None, None)
         else:
             if len(points_transformed)!= len(label_list):
                 raise Exception('Length of points_transformed and label_list is not the same')
@@ -270,7 +277,7 @@ class SemanticMapCore():
                     print(f"Point {points_transformed[i]} is out of bound {self.exception_point_xy_radius} m from origin")
                     raise Exception('Point is too far')
                     continue
-                self.semantic_point_cloud[points_transformed[i]] = SemanticPoint(feature_list[i], label_list[i])
+                self.semantic_point_cloud[points_transformed[i]] = SemanticPoint(feature_list[i], label_list[i], conf_list[i])
     
     def similarity_search(self, similarity_threshold, text):
         '''
@@ -283,6 +290,7 @@ class SemanticMapCore():
         list_of_SemPoints = list(self.semantic_point_cloud.values())
         list_of_points = list(self.semantic_point_cloud.keys())
         found_labels = []
+        found_confs = []
         found_points = []
         found_similarities = []
         if self.label_used:
@@ -291,6 +299,7 @@ class SemanticMapCore():
                 similarity = similarity.cpu().detach().numpy().astype(np.float32).item()
                 if similarity > threshold:
                     found_labels.append(list_of_SemPoints[i].label)
+                    found_confs.append(list_of_SemPoints[i].conf.cpu().detach().numpy().astype(np.float32).item())
                     found_points.append(list_of_points[i])
                     found_similarities.append(similarity)
         else:
@@ -300,7 +309,7 @@ class SemanticMapCore():
                 if similarity > threshold:
                     found_points.append(list_of_points[i])
                     found_similarities.append(similarity)
-        return found_similarities, found_points, found_labels
+        return found_similarities, found_points, found_labels, found_confs
 
 class SemanticMapNode(Node):
     def __init__(self, map_core=None):
@@ -348,9 +357,9 @@ class SemanticMapNode(Node):
                 self.map_core.update_info(self.topic_depth, self.topic_pil_image, self.topic_trans)
                 self.map_core.erase_old_points()
 
-                feat_list, pixel_list, label_list = self.map_core.get_feat_pixel_label()
+                feat_list, pixel_list, label_list, conf_list = self.map_core.get_feat_pixel_label_conf()
                 points_transformed = self.map_core.transform_to_points(pixel_list)
-                self.map_core.update_semantic_point_cloud(points_transformed, feat_list, label_list)
+                self.map_core.update_semantic_point_cloud(points_transformed, feat_list, label_list, conf_list)
 
                 self.publish_input_point_cloud(self.map_core.semantic_point_cloud.keys())
 
@@ -399,11 +408,12 @@ class SemanticMapService(Node):
         if self.map_core.image_semantic_extractor.label_used:
             msg = StringArray()
             semantic_points = list(self.map_core.semantic_point_cloud.values())
-            if semantic_points[0].label is None:
-                raise Exception('Label is None')
-            label_list = [semantic_point.label for semantic_point in semantic_points]
-            msg.string_array = list(set(label_list))
-            self.publisher_labels.publish(msg)
+            if len(semantic_points) != 0:
+                if semantic_points[0].label is None:
+                    raise Exception('Label is None')
+                label_list = [semantic_point.label for semantic_point in semantic_points]
+                msg.string_array = list(set(label_list))
+                self.publisher_labels.publish(msg)
 
     def publish_input_point_cloud(self, point_list, publisher_selected):
         point_cloud_msg = PointCloud()
@@ -435,10 +445,10 @@ class SemanticMapService(Node):
                 self.map_core.update_info(self.topic_depth, self.topic_pil_image, self.topic_trans)
                 self.map_core.erase_old_points()
 
-                feat_list, pixel_list, label_list = self.map_core.get_feat_pixel_label()
+                feat_list, pixel_list, label_list, conf_list = self.map_core.get_feat_pixel_label_conf()
                 points_transformed = self.map_core.transform_to_points(pixel_list)
                 rclpy.logging.get_logger('sem_map_service').info(f'points: {points_transformed}')
-                self.map_core.update_semantic_point_cloud(points_transformed, feat_list, label_list)
+                self.map_core.update_semantic_point_cloud(points_transformed, feat_list, label_list, conf_list)
 
                 self.publish_input_point_cloud(self.map_core.semantic_point_cloud.keys(), self.publisher_mapped_points)
 
@@ -457,7 +467,12 @@ class SemanticMapService(Node):
     def handle_semantic_query(self, request, response):
         rclpy.logging.get_logger('sem_map_service').info(f'handle_semantic_query: {request.object_name}')
         with self.map_rwlock:
-            found_similarities, found_points, found_labels = self.map_core.similarity_search(request.similarity_threshold_rad, request.object_name)
+            found_similarities, found_points, found_labels, found_confs = self.map_core.similarity_search(request.similarity_threshold_rad, request.object_name)
+        print("found")
+        print("found")
+        print("found")
+        print(found_labels)
+        print(found_confs)
         response.similarities = found_similarities
         point_list = []
         for point_tuple in found_points:
@@ -469,6 +484,7 @@ class SemanticMapService(Node):
 
         response.points = point_list
         response.labels = found_labels
+        response.confs = found_confs
         rclpy.logging.get_logger('sem_map_service').info(f'found points: {found_points}')
 
         self.publish_input_point_cloud(found_points, self.publisher_found_points)

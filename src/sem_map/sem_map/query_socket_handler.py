@@ -25,6 +25,7 @@ class SemanticQueryClient(Node):
         self.publisher_found_points = self.create_publisher(PointCloud, 'sem_points_found_client', 10)
         
         # 发现所有匹配的服务
+        self.service_names = []
         self.discover_services()
         self.number_of_server = len(self.sem_map_clients.keys())
     
@@ -40,6 +41,7 @@ class SemanticQueryClient(Node):
             message.object_name = object_name
             message.similarity_threshold_rad = similarity
             message.labels = results[message.service_name]['labels']
+            message.confs = results[message.service_name]['confs']
             message.points = results[message.service_name]['points']
             message.similarities = results[message.service_name]['similarities']
             serialized_message = rclpy.serialization.serialize_message(message)
@@ -101,20 +103,15 @@ class SemanticQueryClient(Node):
         self.get_logger().info(f"Confirmation {message} Send")
         
     def discover_services(self):
-        """自动发现所有/semantic_query开头的服务"""
-        service_names = [name for name, _ in self.get_service_names_and_types()
+        self.get_logger().info("Discovering services...")
+
+        self.service_names = [name for name, _ in self.get_service_names_and_types()
                         if (name.startswith('/semantic_query') and 
                             '/' not in name[len('/semantic_query'):])]
-        print(service_names)
-        
-        list_of_client = self.sem_map_clients.keys()
-        for client in list_of_client:
-            if client not in service_names:
-                self.sem_map_clients.pop(client)
-                self.get_logger().info(f"delete client: {client}")
+        print(self.service_names)
 
         # 为每个服务创建客户端
-        for service_name in service_names:
+        for service_name in self.service_names:
             if service_name in self.sem_map_clients:
                 self.get_logger().info(f"client {service_name} already exist")
                 continue
@@ -123,14 +120,15 @@ class SemanticQueryClient(Node):
                 service_name
             )
             self.get_logger().info(f'Found service: {service_name}')
+        self.get_logger().info(f"after adding: client list: {self.sem_map_clients.keys()}")
     
     def query_service(self, service_name, object_name, threshold):
-        """向指定服务发送请求"""
         client = self.sem_map_clients.get(service_name)
         if not client:
             self.get_logger().warn(f'Service {service_name} not found!')
             return None
-            
+        self.get_logger().info(f'Calling service {service_name} with object name: {object_name} and threshold: {threshold}')
+
         req = SemanticQuery.Request()
         req.object_name = object_name
         req.similarity_threshold_rad = threshold
@@ -138,21 +136,23 @@ class SemanticQueryClient(Node):
         future = client.call_async(req)
         rclpy.spin_until_future_complete(self, future)
         try:
+            self.get_logger().info(f'Service {service_name} called successfully')
+            self.get_logger().info(f"Response: {future.result()}")
             return future.result()
         except Exception as e:
             self.get_logger().error(f'Service call failed: {str(e)}')
             return None
     
     def trigger_all_queries(self, object_name, threshold):
-        """触发所有已发现服务的查询"""
         results = {}
-        for service_name in self.sem_map_clients:
+        for service_name in self.service_names:
             response = self.query_service(service_name, object_name, threshold)
             if response:
                 results[service_name] = {
                     'similarities': response.similarities,
                     'points': response.points,
-                    'labels': response.labels
+                    'labels': response.labels,
+                    'confs': response.confs
                 }
         return results
 

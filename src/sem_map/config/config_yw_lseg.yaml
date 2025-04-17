@@ -1,7 +1,7 @@
 map_config:
   map_read_name: "" #to make it start with empty map, put ""
   map_save_name: "" #to make it save to new map or generate new name, put ""
-  map_save_interval: 36 # every n update of map, it will save
+  map_save_interval: 10 # every n update of map, it will save
   map_depth_threshold: 2200 # unit: mm, exceeding n will be set to n
   erase_point_depth_threshold: 40001 # when two frames of depth image have this much difference, there will be no erase of points
   erase_point_depth_tolerance: 100 # unit: mm, if the point depth is with in current frame depth's +- 100 mm, it will not be erased
@@ -9,6 +9,7 @@ map_config:
   z_axis_lower_bound: 0.0 # unit: m, every point with z value below this will not be put into semantic map
   z_axis_upper_bound: 2.5 # unit: m, every point with z value above this will not be put into semantic map
   exception_point_xy_radius: 100.0 # unit: m, every point with x and y value out this radius will not be put into semantic map
+  image_processor_conf_threshold: 0.4
 
 image_processor_config:
   name: yolo_lseg

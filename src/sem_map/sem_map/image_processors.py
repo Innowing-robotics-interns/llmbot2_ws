@@ -20,6 +20,7 @@ return:
   - feat_list: list of features, in format: [feat1, feat2,...], each feat is a tensor
   - pixel_list: list of pixels, in format: [(x,y), (x,y), ...]
   - label_list: list of labels, in format: [label1, label2,...], can be None
+  - conf_list: list of confidences, in format: [conf1, conf2,...], can be None
 
 and the following member variables:
 self.name
@@ -32,11 +33,11 @@ def create_processor(image_processr_name, **kwargs):
     if image_processr_name == 'lseg_feat':
         return LSegFeatImageProcessor(**kwargs)
     elif image_processr_name == 'yolo_lseg':
-        return YOLO_LSeg_ImageProcessor(**kwargs)
+        return YOLO_LSeg_ImageProcessor(**kwargs, name="yolo_lseg", model_path="/home/fyp/llmbot2_ws/src/sem_map/model/yolo11x.pt")
     elif image_processr_name == 'yw_lseg':
-        return YW_LSeg_ImageProcessor(**kwargs)
+        return YOLO_LSeg_ImageProcessor(**kwargs, name="yw_lseg", model_path="/home/fyp/llmbot2_ws/src/sem_map/model/yolov8s-world.pt")
     elif image_processr_name == 'cyw1_lseg':
-        return CYW1_LSeg_ImageProcessor(**kwargs)
+        return YOLO_LSeg_ImageProcessor(**kwargs, name="cyw1_lseg", model_path="/home/fyp/llmbot2_ws/src/sem_map/model/custom_yolov8x_worldv2_1.pt")
     else:
         raise ValueError('Unknown image processor name: {}'.format(image_processr_name))
 
@@ -57,7 +58,7 @@ def max_sim_feature_index(list_of_features, text_feat):
     return np.argmax(similarities)
 
 class LSegFeatImageProcessor:
-    def __init__(self, model=lseg_model):
+    def __init__(self, conf_threshold=0.5, model=lseg_model):
         self.name = 'lseg_feat'
 
         self.label_used = False
@@ -77,6 +78,7 @@ class LSegFeatImageProcessor:
         # self.image_original_size = [640, 480]
         self.image_offset_x = 80
         self.image_offset_y = 0
+        self.conf_threshold = conf_threshold
     
     def update_current_image(self, pil_image):
         self.current_image = self.transform(pil_image)
@@ -212,17 +214,18 @@ class LSegFeatImageProcessor:
         features = self.PCA_cuda(self.current_features, n_components=n_pca_components)
         clustered_image = self.Cluster_cuda(features, n_clusters=36)
         feat_list, pixel_list = self.obtain_key_pixels(self.current_features, clustered_image, pixels_percent=pixels_percent, rule_out_threshold=rule_out_threshold)
-        return feat_list, pixel_list, None
+        return feat_list, pixel_list, None, None
 
 class YOLO_LSeg_ImageProcessor:
-    def __init__(self, model_path="/home/fyp/llmbot2_ws/src/sem_map/model/yolo11x.pt"):
-        self.name = 'yolo_lseg'
+    def __init__(self, conf_threshold=0.5, name="yolo_lseg", model_path="/home/fyp/llmbot2_ws/src/sem_map/model/yolo11x.pt"):
+        self.name = name
 
         self.label_used = True
         self.model = YOLO(model_path)
 
         self.image_offset_x = 0
         self.image_offset_y = 0
+        self.conf_threshold = conf_threshold
     
     def get_label(self, image):
         results = self.model(image)
@@ -231,79 +234,21 @@ class YOLO_LSeg_ImageProcessor:
         confs = results[0].boxes.conf
         return xywh, names, confs
     
-    def get_feat_pixel_labels(self, image):
+    def get_feat_pixel_label_confs(self, image):
         xywh, names, confs = self.get_label(image)
         # feat_pixel_pair = []
         feat_list = []
         pixel_list = []
+        name_list = []
+        conf_list = []
         xywh = xywh.cpu().detach().numpy().tolist()
         for i in range(len(xywh)):
-            x, y, w, h = xywh[i]
-            name = names[i]
-            # feat_pixel_pair.append((encode_text(name)[0], (y, x)))
-            feat_list.append(encode_text(name)[0])
-            pixel_list.append((int(x), int(y)))
-        return feat_list, pixel_list, names
-    
-class YW_LSeg_ImageProcessor:
-    def __init__(self, model_path="/home/fyp/llmbot2_ws/src/sem_map/model/yolov8s-world.pt"):
-        self.name = 'yw_lseg'
-
-        self.label_used = True
-        self.model = YOLO(model_path)
-
-        self.image_offset_x = 0
-        self.image_offset_y = 0
-    
-    def get_label(self, image):
-        results = self.model(image)
-        xywh = results[0].boxes.xywh
-        names = [results[0].names[cls.item()] for cls in results[0].boxes.cls.int()]
-        confs = results[0].boxes.conf
-        return xywh, names, confs
-    
-    def get_feat_pixel_labels(self, image):
-        xywh, names, confs = self.get_label(image)
-        # feat_pixel_pair = []
-        feat_list = []
-        pixel_list = []
-        xywh = xywh.cpu().detach().numpy().tolist()
-        for i in range(len(xywh)):
-            x, y, w, h = xywh[i]
-            name = names[i]
-            # feat_pixel_pair.append((encode_text(name)[0], (y, x)))
-            feat_list.append(encode_text(name)[0])
-            pixel_list.append((int(x), int(y)))
-        return feat_list, pixel_list, names
-# Custom Yolo-World 1 Image Processor
-class CYW1_LSeg_ImageProcessor:
-    def __init__(self, model_path="/home/fyp/llmbot2_ws/src/sem_map/model/custom_yolov8s_world_1.pt"):
-        self.name = 'cyw1_lseg'
-
-        self.label_used = True
-        self.model = YOLO(model_path)
-
-        self.image_offset_x = 0
-        self.image_offset_y = 0
-    
-    def get_label(self, image):
-        results = self.model(image)
-        xywh = results[0].boxes.xywh
-        names = [results[0].names[cls.item()] for cls in results[0].boxes.cls.int()]
-        confs = results[0].boxes.conf
-        return xywh, names, confs
-    
-    def get_feat_pixel_labels(self, image):
-        xywh, names, confs = self.get_label(image)
-        # feat_pixel_pair = []
-        feat_list = []
-        pixel_list = []
-        xywh = xywh.cpu().detach().numpy().tolist()
-        for i in range(len(xywh)):
-            x, y, w, h = xywh[i]
-            name = names[i]
-            # feat_pixel_pair.append((encode_text(name)[0], (y, x)))
-            feat_list.append(encode_text(name)[0])
-            pixel_list.append((int(x), int(y)))
-        return feat_list, pixel_list, names
-
+            if confs[i] > self.conf_threshold:
+                x, y, w, h = xywh[i]
+                name = names[i]
+                # feat_pixel_pair.append((encode_text(name)[0], (y, x)))
+                feat_list.append(encode_text(name)[0])
+                pixel_list.append((int(x), int(y)))
+                name_list.append(name)
+                conf_list.append(confs[i])
+        return feat_list, pixel_list, name_list, conf_list
