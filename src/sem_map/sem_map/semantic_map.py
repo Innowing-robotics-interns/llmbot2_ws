@@ -32,9 +32,11 @@ def load_semantic_map_core(map_config, image_processor_selection):
     z_axis_upper_bound = map_config['z_axis_upper_bound']
     exception_point_xy_radius = map_config['exception_point_xy_radius']
     image_processor_conf_threshold = map_config['image_processor_conf_threshold']
-    depth_moving_averate_window = map_config['depth_moving_averate_window']
+    depth_moving_average_window = map_config['depth_moving_average_window']
     erase_points = map_config['erase_points']
-
+    transform_difference_moving_window = map_config['transform_difference_moving_window']
+    translation_difference_threshold = map_config['translation_difference_threshold']
+    rotation_difference_threshold = map_config['rotation_difference_threshold']
     # 打印加载语义地图核心的相关配置信息
     print(f"Loading semantic map core with the following configuration:\n"
           f"Map read name: {map_read_name}\n"
@@ -48,8 +50,11 @@ def load_semantic_map_core(map_config, image_processor_selection):
           f"Z-axis upper bound: {z_axis_upper_bound}\n"
           f"exception_point_xy_radius: {exception_point_xy_radius}\n"
           f"Image processor confidence threshold: {image_processor_conf_threshold}\n"
-          f"Depth moving average window: {depth_moving_averate_window}\n"
-          f"Erase points: {erase_points}\n")
+          f"Depth moving average window: {depth_moving_average_window}\n"
+          f"Erase points: {erase_points}\n"
+          f"Transform difference moving window: {transform_difference_moving_window}\n"
+          f"Translation difference threshold: {translation_difference_threshold}"
+          f"Rotation difference threshold: {rotation_difference_threshold}")
     return SemanticMapCore(
         image_semantic_extractor=create_processor(image_processor_selection),
         map_read_name=map_read_name,
@@ -63,8 +68,11 @@ def load_semantic_map_core(map_config, image_processor_selection):
         z_axis_upper_bound=z_axis_upper_bound,
         exception_point_xy_radius=exception_point_xy_radius,
         image_processor_conf_threshold=image_processor_conf_threshold,
-        depth_moving_averate_window=depth_moving_averate_window,
-        erase_points=erase_points
+        depth_moving_average_window=depth_moving_average_window,
+        erase_points=erase_points,
+        transform_difference_moving_window=transform_difference_moving_window,
+        translation_difference_threshold=translation_difference_threshold,
+        rotation_difference_threshold=rotation_difference_threshold
     )
 
 class SemanticPoint:
@@ -92,13 +100,40 @@ class SemanticMapCore():
     z_axis_upper_bound=2.0,
     exception_point_xy_radius=12.0,
     image_processor_conf_threshold=0.5,
-    depth_moving_averate_window=5,
-    erase_points=True):
+    depth_moving_average_window=5,
+    erase_points=True,
+    transform_difference_moving_window=6,
+    translation_difference_threshold=0.03,
+    rotation_difference_threshold=0.05):
+
+        if transform_difference_moving_window < 2:
+            self.transform_difference_used = False
+        else:
+            self.transform_difference_used = True
+        
+        self.transform_moving_window = transform_difference_moving_window
+        self.transform_moving = np.zeros((transform_difference_moving_window, 7))
+        self.depth_window = np.zeros((transform_difference_moving_window, 480, 640))
+        self.color_window = np.zeros((transform_difference_moving_window, 480, 640, 3))
+
+        self.transform_moving[-1] = np.array([0, 0, 0, 0, 0, 0, 1]) # init transform to identity
+        self.transform_moving_index = 0
+        self.transform_moving_window_count = 0
+
+        self.transform_difference_window = np.zeros((transform_difference_moving_window-1, 2))
+        self.difference_update_index = 0
+
+        self.half_transform_difference_window = int((transform_difference_moving_window-1)/2)
+
+        self.angle_difference_sum_threshold = rotation_difference_threshold * (self.transform_moving_window - 1)
+        self.translation_distance_sum_threshold = translation_difference_threshold * (self.transform_moving_window - 1)
+        self.translation_difference_threshold = translation_difference_threshold * 2
+        self.rotation_difference_threshold = rotation_difference_threshold * 2
         
         self.erase_points = erase_points
 
-        self.depth_moving_averate_window = depth_moving_averate_window
-        self.depth_moving_average = np.zeros((depth_moving_averate_window, 480, 640))
+        self.depth_moving_average_window = depth_moving_average_window
+        self.depth_moving_average = np.zeros((depth_moving_average_window, 480, 640))
         self.depth_moving_average_index = 0
         self.depth_moving_average_sum = 0
         self.depth_moving_average_count = 0
@@ -144,13 +179,66 @@ class SemanticMapCore():
 
         self.exception_point_xy_radius = exception_point_xy_radius
     
+    def two_transform_difference(self, trans1, trans2):
+        trans1_linear = trans1[:3]
+        trans2_linear = trans2[:3]
+        norm_distance = np.linalg.norm(trans1_linear - trans2_linear)
+        trans1_quat = trans1[3:]
+        trans2_quat = trans2[3:]
+        trans1_quat = R.from_quat(trans1_quat)
+        trans2_quat = R.from_quat(trans2_quat)
+        trans1_quat = trans1_quat.as_euler('xyz', degrees=False)
+        trans2_quat = trans2_quat.as_euler('xyz', degrees=False)
+        angle_difference = np.linalg.norm(trans1_quat - trans2_quat)
+        return norm_distance, angle_difference
+    
+    def update_transform_difference_window(self, trans, color_image, depth_image):
+        # update the moving average of the transform difference
+        # first 3 of trans is linear transformation, last 4 is quaternion
+        self.transform_moving[self.transform_moving_index] = trans
+        self.color_window[self.transform_moving_index] = color_image
+        self.depth_window[self.transform_moving_index] = depth_image
+
+        difference = self.two_transform_difference(self.transform_moving[self.transform_moving_index-1], self.transform_moving[self.transform_moving_index])
+        self.transform_difference_window[self.difference_update_index] = difference
+        print(self.transform_difference_window)
+
+        self.difference_update_index += 1
+        if self.difference_update_index >= self.transform_moving_window-1:
+            self.difference_update_index = 0
+        if self.transform_moving_window_count < self.transform_moving_window:
+            self.transform_moving_window_count += 1
+
+        self.transform_moving_index += 1
+        if self.transform_moving_index >= self.transform_moving_window:
+            self.transform_moving_index = 0
+        return difference
+    
+    def update_frame_at_middle(self):
+        # sum the difference in transform up, if they are smaller than threshold, update
+        if self.transform_moving_window_count < self.transform_moving_window:
+            return False
+        for distance_difference, angle_difference in self.transform_difference_window:
+            if distance_difference == 0 and angle_difference == 0:
+                return False
+            if distance_difference > self.translation_difference_threshold or angle_difference > self.rotation_difference_threshold:
+                return False
+        distance_difference_sum, angle_difference_sum = np.sum(self.transform_difference_window, axis=0)
+        if (distance_difference_sum < self.translation_distance_sum_threshold) and (angle_difference_sum < self.angle_difference_sum_threshold):
+            middle_frame_index = self.half_transform_difference_window + self.transform_moving_index
+            middle_frame_index = middle_frame_index % self.transform_moving_window
+            self.update_info(self.depth_window[middle_frame_index], self.color_window[middle_frame_index], self.transform_moving[middle_frame_index])
+            return True
+        else:
+            return False
+    
     def update_depth_moving_average(self, depth_image):
         # update the moving average depth image
         self.depth_moving_average[self.depth_moving_average_index] = depth_image
         self.depth_moving_average_index += 1
-        if self.depth_moving_average_index >= self.depth_moving_averate_window:
+        if self.depth_moving_average_index >= self.depth_moving_average_window:
             self.depth_moving_average_index = 0
-        if self.depth_moving_average_count < self.depth_moving_averate_window:
+        if self.depth_moving_average_count < self.depth_moving_average_window:
             self.depth_moving_average_count += 1
         self.depth_moving_average_sum = np.sum(self.depth_moving_average[:self.depth_moving_average_count], axis=0)
         return self.depth_moving_average_sum / self.depth_moving_average_count
@@ -180,7 +268,6 @@ class SemanticMapCore():
         self.depth = self.update_depth_moving_average(depth_image)
         self.depth[self.depth > self.max_depth_threshold] = self.max_depth_threshold
         self.rscalc.update_depth(self.depth)
-
     def update_pil_image(self, pil_image):
         self.prev_pil_image = self.pil_image
         self.pil_image = pil_image
@@ -191,27 +278,18 @@ class SemanticMapCore():
         self.update_depth(depth_image)
         self.update_pil_image(pil_image)
         self.update_trans(trans)
+        if self.prev_trans is not None:
+            transform_difference, angle_difference = self.two_transform_difference(self.trans, self.prev_trans)
+            print(f"Transform difference: {transform_difference}, Angle difference: {angle_difference}")
+            print(f"Transform difference: {transform_difference}, Angle difference: {angle_difference}")
+            print(f"Transform difference: {transform_difference}, Angle difference: {angle_difference}")
+            print(f"Transform difference: {transform_difference}, Angle difference: {angle_difference}")
+            print(f"Transform difference: {transform_difference}, Angle difference: {angle_difference}")
 
     def get_feat_pixel_label_conf(self, **kwargs):
         feat_list, pixel_list, label_list, conf_list = self.image_semantic_extractor.get_feat_pixel_label_confs(self.pil_image, **kwargs)
         return feat_list, pixel_list, label_list, conf_list
 
-    def two_frame_difference_high(self):
-        # calculate the difference between the current depth and the previous depth
-        # calculate the difference between the current trans and the previous trans
-        # if both difference are greater than a threshold, return True, meaning should erase
-        if self.prev_depth is None or self.prev_trans is None or self.prev_pil_image is None:
-            return False
-        else:
-            depth_diff = self.depth - self.prev_depth
-            depth_diff = np.abs(depth_diff)
-            depth_diff = np.mean(depth_diff)
-
-            if depth_diff > self.erase_point_depth_threshold:
-                return True
-            else:
-                return False
-    
     def transform_to_points(self, pixel_list):
         point_list = []
         for i in range(len(pixel_list)):
@@ -263,8 +341,6 @@ class SemanticMapCore():
     
     def erase_old_points(self):
         if self.erase_points == False:
-            return
-        if self.two_frame_difference_high():
             return
         list_of_points = list(self.semantic_point_cloud.keys())
         points_to_delete = []
@@ -473,7 +549,23 @@ class SemanticMapService(Node):
     def map_update(self):
         with self.map_rwlock:
             if self.topic_pil_image is not None and self.topic_depth is not None and self.topic_trans is not None:
-                self.map_core.update_info(self.topic_depth, self.topic_pil_image, self.topic_trans)
+                if self.map_core.transform_difference_used:
+                    difference = self.map_core.update_transform_difference_window(self.topic_trans, self.topic_pil_image, self.topic_depth)
+                    update = self.map_core.update_frame_at_middle()
+                    if update == False:
+                        self.topic_pil_image = None
+                        self.topic_depth = None
+                        self.topic_trans = None
+                        return
+                    else:
+                        self.get_logger().info(f'Update map with transform difference: {difference}')
+                        self.get_logger().info(f'Update map with transform difference: {difference}')
+                        self.get_logger().info(f'Update map with transform difference: {difference}')
+                        self.get_logger().info(f'Update map with transform difference: {difference}')
+                        self.get_logger().info(f'Update map with transform difference: {difference}')
+                else:
+                    self.map_core.update_info(self.topic_depth, self.topic_pil_image, self.topic_trans)
+
                 self.map_core.erase_old_points()
 
                 feat_list, pixel_list, label_list, conf_list = self.map_core.get_feat_pixel_label_conf()

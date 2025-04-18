@@ -1,0 +1,4 @@
+socket_connection:
+  port_num: 34565
+  connect_to: robot-helper
+  update_interval: 0.01
