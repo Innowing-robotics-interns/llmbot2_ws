@@ -10,6 +10,7 @@ from interfaces.msg import ObjectSem
 from geometry_msgs.msg import Point
 from sensor_msgs.msg import PointCloud
 from geometry_msgs.msg import Point32
+import subprocess
 
 class SemanticQueryClient(Node):
     def __init__(self):
@@ -105,10 +106,41 @@ class SemanticQueryClient(Node):
     def discover_services(self):
         self.get_logger().info("Discovering services...")
 
-        self.service_names = [name for name, _ in self.get_service_names_and_types()
-                        if (name.startswith('/semantic_query') and 
-                            '/' not in name[len('/semantic_query'):])]
-        print(self.service_names)
+        existing_clients = list(self.sem_map_clients.keys())
+        self.get_logger().info(f"Existing clients: {existing_clients}")
+        self.get_logger().info(f"Removing all clients ...")
+        for service_name in existing_clients:
+            self.destroy_client(self.sem_map_clients[service_name])
+            del self.sem_map_clients[service_name]
+            self.get_logger().warning(f'Removed client: {service_name}')
+
+        try:
+            # 执行ros2 service list命令并捕获输出
+            result = subprocess.run(['ros2', 'service', 'list'], 
+                                  capture_output=True, 
+                                  text=True)
+            
+            if result.returncode == 0:
+                # self.get_logger().info("当前运行的服务:\n" + result.stdout)
+                self.service_names = [
+                    name.strip() 
+                    for name in result.stdout.splitlines() 
+                    if (
+                        name.strip().startswith('/semantic_query') and
+                        '/' not in name.strip()[len('/semantic_query'):]
+                    )
+                ]
+                self.get_logger().info(f"ros2 service list的semantic map: {self.service_names}")
+            else:
+                self.get_logger().error("获取服务列表失败: " + result.stderr)
+                
+        except Exception as e:
+            self.get_logger().error("执行命令时出错: " + str(e))
+
+            self.service_names = [name for name, _ in self.get_service_names_and_types()
+                            if (name.startswith('/semantic_query') and 
+                                '/' not in name[len('/semantic_query'):])]
+            self.get_logger().info(f"当前的semantic map: {self.service_names}")
 
         # 为每个服务创建客户端
         for service_name in self.service_names:
@@ -127,6 +159,13 @@ class SemanticQueryClient(Node):
         if not client:
             self.get_logger().warn(f'Service {service_name} not found!')
             return None
+        self.get_logger().info(f'Calling service {service_name} with object name: {object_name} and threshold: {threshold}')
+
+        if not client.wait_for_service(timeout_sec=5.0):
+            self.get_logger().error(f'Service {service_name} not available!')
+            return None
+
+        self.get_logger().info(f"client {service_name} is available")
         self.get_logger().info(f'Calling service {service_name} with object name: {object_name} and threshold: {threshold}')
 
         req = SemanticQuery.Request()

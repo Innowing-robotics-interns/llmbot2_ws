@@ -32,6 +32,9 @@ def load_semantic_map_core(map_config, image_processor_selection):
     z_axis_upper_bound = map_config['z_axis_upper_bound']
     exception_point_xy_radius = map_config['exception_point_xy_radius']
     image_processor_conf_threshold = map_config['image_processor_conf_threshold']
+    depth_moving_averate_window = map_config['depth_moving_averate_window']
+    erase_points = map_config['erase_points']
+
     # 打印加载语义地图核心的相关配置信息
     print(f"Loading semantic map core with the following configuration:\n"
           f"Map read name: {map_read_name}\n"
@@ -44,7 +47,9 @@ def load_semantic_map_core(map_config, image_processor_selection):
           f"Z-axis lower bound: {z_axis_lower_bound}\n"
           f"Z-axis upper bound: {z_axis_upper_bound}\n"
           f"exception_point_xy_radius: {exception_point_xy_radius}\n"
-          f"Image processor confidence threshold: {image_processor_conf_threshold}\n")
+          f"Image processor confidence threshold: {image_processor_conf_threshold}\n"
+          f"Depth moving average window: {depth_moving_averate_window}\n"
+          f"Erase points: {erase_points}\n")
     return SemanticMapCore(
         image_semantic_extractor=create_processor(image_processor_selection),
         map_read_name=map_read_name,
@@ -57,7 +62,9 @@ def load_semantic_map_core(map_config, image_processor_selection):
         z_axis_lower_bound=z_axis_lower_bound,
         z_axis_upper_bound=z_axis_upper_bound,
         exception_point_xy_radius=exception_point_xy_radius,
-        image_processor_conf_threshold=image_processor_conf_threshold
+        image_processor_conf_threshold=image_processor_conf_threshold,
+        depth_moving_averate_window=depth_moving_averate_window,
+        erase_points=erase_points
     )
 
 class SemanticPoint:
@@ -84,7 +91,17 @@ class SemanticMapCore():
     z_axis_lower_bound=0.5,
     z_axis_upper_bound=2.0,
     exception_point_xy_radius=12.0,
-    image_processor_conf_threshold=0.5):
+    image_processor_conf_threshold=0.5,
+    depth_moving_averate_window=5,
+    erase_points=True):
+        
+        self.erase_points = erase_points
+
+        self.depth_moving_averate_window = depth_moving_averate_window
+        self.depth_moving_average = np.zeros((depth_moving_averate_window, 480, 640))
+        self.depth_moving_average_index = 0
+        self.depth_moving_average_sum = 0
+        self.depth_moving_average_count = 0
 
         self.pil_image = None
         self.depth = None
@@ -127,6 +144,17 @@ class SemanticMapCore():
 
         self.exception_point_xy_radius = exception_point_xy_radius
     
+    def update_depth_moving_average(self, depth_image):
+        # update the moving average depth image
+        self.depth_moving_average[self.depth_moving_average_index] = depth_image
+        self.depth_moving_average_index += 1
+        if self.depth_moving_average_index >= self.depth_moving_averate_window:
+            self.depth_moving_average_index = 0
+        if self.depth_moving_average_count < self.depth_moving_averate_window:
+            self.depth_moving_average_count += 1
+        self.depth_moving_average_sum = np.sum(self.depth_moving_average[:self.depth_moving_average_count], axis=0)
+        return self.depth_moving_average_sum / self.depth_moving_average_count
+    
     def point_too_far(self, point):
         radius = np.sqrt(point[0]**2 + point[1]**2)
         if radius > self.exception_point_xy_radius:
@@ -148,10 +176,11 @@ class SemanticMapCore():
 
     def update_depth(self, depth_image):
         self.prev_depth = self.depth
-        self.depth = depth_image
-        # let all depth greater than 2 be 2
+        # self.depth = depth_image
+        self.depth = self.update_depth_moving_average(depth_image)
         self.depth[self.depth > self.max_depth_threshold] = self.max_depth_threshold
         self.rscalc.update_depth(self.depth)
+
     def update_pil_image(self, pil_image):
         self.prev_pil_image = self.pil_image
         self.pil_image = pil_image
@@ -233,6 +262,8 @@ class SemanticMapCore():
         return False
     
     def erase_old_points(self):
+        if self.erase_points == False:
+            return
         if self.two_frame_difference_high():
             return
         list_of_points = list(self.semantic_point_cloud.keys())

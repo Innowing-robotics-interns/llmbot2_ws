@@ -10,6 +10,8 @@ map_config:
   z_axis_upper_bound: 2.5 # unit: m, every point with z value above this will not be put into semantic map
   exception_point_xy_radius: 100.0 # unit: m, every point with x and y value out this radius will not be put into semantic map
   image_processor_conf_threshold: 0.4
+  depth_moving_averate_window: 1 # unit: frames, the moving average window for depth image
+  erase_points: False # True or False, if True, outdated points will be erased when the depth image is updated
 
 image_processor_config:
   name: yolo_lseg
