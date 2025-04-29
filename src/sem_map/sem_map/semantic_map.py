@@ -281,10 +281,6 @@ class SemanticMapCore():
         if self.prev_trans is not None:
             transform_difference, angle_difference = self.two_transform_difference(self.trans, self.prev_trans)
             print(f"Transform difference: {transform_difference}, Angle difference: {angle_difference}")
-            print(f"Transform difference: {transform_difference}, Angle difference: {angle_difference}")
-            print(f"Transform difference: {transform_difference}, Angle difference: {angle_difference}")
-            print(f"Transform difference: {transform_difference}, Angle difference: {angle_difference}")
-            print(f"Transform difference: {transform_difference}, Angle difference: {angle_difference}")
 
     def get_feat_pixel_label_conf(self, **kwargs):
         feat_list, pixel_list, label_list, conf_list = self.image_semantic_extractor.get_feat_pixel_label_confs(self.pil_image, **kwargs)
@@ -558,10 +554,6 @@ class SemanticMapService(Node):
                         self.topic_trans = None
                         return
                     else:
-                        self.get_logger().info(f'Update map with transform difference: {difference}')
-                        self.get_logger().info(f'Update map with transform difference: {difference}')
-                        self.get_logger().info(f'Update map with transform difference: {difference}')
-                        self.get_logger().info(f'Update map with transform difference: {difference}')
                         self.get_logger().info(f'Update map with transform difference: {difference}')
                 else:
                     self.map_core.update_info(self.topic_depth, self.topic_pil_image, self.topic_trans)

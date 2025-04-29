@@ -13,6 +13,10 @@ from skimage.measure import label
 # class YOLO_LSeg_ImageProcessor
 from ultralytics import YOLO
 
+# class GD_LSeg_ImageProcessor
+from groundingdino.util.inference import load_model, predict, annotate, load_image_wo_PIL
+import groundingdino.datasets.transforms as T
+
 '''
 Each ImageProcessor should have the following methods:
 - get_feat_pixel_labels(pil_image)
@@ -38,6 +42,8 @@ def create_processor(image_processr_name, **kwargs):
         return YOLO_LSeg_ImageProcessor(**kwargs, name="yw_lseg", model_path="/home/fyp/llmbot2_ws/src/sem_map/model/yolov8s-world.pt")
     elif image_processr_name == 'cyw1_lseg':
         return YOLO_LSeg_ImageProcessor(**kwargs, name="cyw1_lseg", model_path="/home/fyp/llmbot2_ws/src/sem_map/model/custom_yolov8x_worldv2_1.pt")
+    elif image_processr_name == 'gd_lseg':
+        return GD_LSeg_ImageProcessor(**kwargs, name="gd_lseg")
     else:
         raise ValueError('Unknown image processor name: {}'.format(image_processr_name))
 
@@ -81,6 +87,9 @@ class LSegFeatImageProcessor:
         self.conf_threshold = conf_threshold
     
     def update_current_image(self, pil_image):
+        # Transform TypeError: Unexpected type <class 'numpy.ndarray'> to the expected type <class 'PIL.Image.Image'>.
+        if isinstance(pil_image, np.ndarray):
+            pil_image = transforms.ToPILImage()(pil_image)
         self.current_image = self.transform(pil_image)
 
     def update_feature(self):
@@ -208,7 +217,7 @@ class LSegFeatImageProcessor:
         clustered_image = self.Cluster_cuda_wo_relabel(features, n_clusters=num_clusters)
         return clustered_image
     
-    def get_feat_pixel_labels(self, image, n_pca_components=20, n_clusters=36, pixels_percent=0.3, rule_out_threshold=500):
+    def get_feat_pixel_label_confs(self, image, n_pca_components=20, n_clusters=36, pixels_percent=0.3, rule_out_threshold=500):
         self.update_current_image(image)
         self.update_feature()
         features = self.PCA_cuda(self.current_features, n_components=n_pca_components)
@@ -252,3 +261,71 @@ class YOLO_LSeg_ImageProcessor:
                 name_list.append(name)
                 conf_list.append(confs[i])
         return feat_list, pixel_list, name_list, conf_list
+
+class GD_LSeg_ImageProcessor:
+    def __init__(self, conf_threshold=0.35, name="gd_lseg"):
+        self.name = name
+        self.conf_threshold = conf_threshold
+
+        self.label_used = True
+        # self.model = YOLO(model_path)
+
+        self.image_offset_x = 0
+        self.image_offset_y = 0
+        self.image_width = 640
+        self.image_height = 480
+        self.gd_model = load_model("~/GroundingDINO/groundingdino/config/GroundingDINO_SwinT_OGC.py", "/home/fyp/weights/groundingdino_swint_ogc.pth")
+        self.text_prompt_path = "/home/fyp/llmbot2_ws/src/sem_map/config/grounding_dino_text_prompt.txt"
+        # read text prompt from file
+        with open(self.text_prompt_path, 'r') as f:
+            self.TEXT_PROMPT = f.read().strip()
+            print("text prompt loaded")
+            print(self.TEXT_PROMPT)
+        self.BOX_TRESHOLD = 0.35
+        self.TEXT_TRESHOLD = 0.30
+        print("load done")
+    
+    def update_current_image(self, image):
+        # Transform TypeError: Unexpected type <class 'numpy.ndarray'> to the expected type <class 'PIL.Image.Image'>.
+        if isinstance(image, np.ndarray):
+            image = transforms.ToPILImage()(image)
+        return image
+
+    def get_label(self, image):
+        image = self.update_current_image(image)
+        image_source, image = load_image_wo_PIL(image)
+        boxes, logits, phrases = predict(
+            model=self.gd_model,
+            image=image,
+            caption=self.TEXT_PROMPT,
+            box_threshold=self.BOX_TRESHOLD,
+            text_threshold=self.TEXT_TRESHOLD
+        )
+        xy = []
+        boxes = boxes.cpu().detach().numpy().tolist()
+        for cx, cy, w, h in boxes:
+            xy.append((int(cx*self.image_width), int(cy*self.image_height)))
+        print(xy)
+        print(phrases)
+        print(logits)
+        return xy, phrases, logits
+    
+    def get_feat_pixel_label_confs(self, image):
+        xy, names, confs = self.get_label(image)
+        # feat_pixel_pair = []
+        feat_list = []
+        pixel_list = []
+        name_list = []
+        conf_list = []
+        for i in range(len(xy)):
+            if confs[i] > self.conf_threshold:
+                x, y = xy[i]
+                name = names[i]
+                # feat_pixel_pair.append((encode_text(name)[0], (y, x)))
+                feat_list.append(encode_text(name)[0])
+                pixel_list.append((int(x), int(y)))
+                name_list.append(name)
+                conf_list.append(confs[i])
+        return feat_list, pixel_list, name_list, conf_list
+    
+        

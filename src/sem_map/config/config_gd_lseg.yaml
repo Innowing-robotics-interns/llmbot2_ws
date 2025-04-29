@@ -11,10 +11,10 @@ map_config:
   exception_point_xy_radius: 100.0 # unit: m, every point with x and y value out this radius will not be put into semantic map
   image_processor_conf_threshold: 0.4
   depth_moving_average_window: 1 # unit: frames, the moving average window for depth image
-  erase_points: True # True or False, if True, outdated points will be erased when the depth image is updated
-  transform_difference_moving_window: 7
-  translation_difference_threshold: 0.03 # unit: m, if the translation difference is larger than this, the point will not be erased
-  rotation_difference_threshold: 0.03 # unit: rad, if the rotation difference is larger than this, the point will not be erased
+  erase_points: False # True or False, if True, outdated points will be erased when the depth image is updated
+  transform_difference_moving_window: 2
+  translation_difference_threshold: 0.05 # unit: m, if the translation difference is larger than this, the point will not be erased
+  rotation_difference_threshold: 0.05 # unit: rad, if the rotation difference is larger than this, the point will not be erased
 
 image_processor_config:
   name: yolo_lseg

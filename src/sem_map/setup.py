@@ -33,8 +33,10 @@ setup(
                 'sem_map_service_yw_lseg = sem_map.sem_map_service_yw_lseg:main',
                 'sem_map_service_cyw1_lseg = sem_map.sem_map_service_cyw1_lseg:main',
                 'sem_map_service_lseg_feat = sem_map.sem_map_service_lseg_feat:main',
+                'sem_map_service_gd_lseg = sem_map.sem_map_service_gd_lseg:main',
                 'query_socket_handler = sem_map.query_socket_handler:main',
                 'image_transform_client = sem_map.image_transform_client:main',
+                'gdino_query_client = sem_map.gdino_query_client:main',
         ],
     },
 )
