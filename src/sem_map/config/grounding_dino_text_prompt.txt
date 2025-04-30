@@ -1,1 +1,1 @@
-clamp . bottle . coil . stapler . tape .
+clamp . bottle . coil . stapler . tape . cup . tape measure . keyboard .

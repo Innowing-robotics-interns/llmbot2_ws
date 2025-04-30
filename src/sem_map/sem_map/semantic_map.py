@@ -276,7 +276,8 @@ class SemanticMapCore():
         self.trans = trans
     def update_info(self, depth_image, pil_image, trans):
         self.update_depth(depth_image)
-        self.update_pil_image(pil_image)
+        pil_image_uint8 = pil_image.astype(np.uint8)
+        self.update_pil_image(Image.fromarray(pil_image_uint8))
         self.update_trans(trans)
         if self.prev_trans is not None:
             transform_difference, angle_difference = self.two_transform_difference(self.trans, self.prev_trans)
@@ -538,7 +539,8 @@ class SemanticMapService(Node):
         color_image = np.frombuffer(msg.data_color, dtype=np.uint8).reshape(image_height, image_width, 3)
         depth_image = np.frombuffer(msg.data_depth, dtype=np.uint16).reshape(image_height, image_width)
         with self.data_lock:
-            self.topic_pil_image = Image.fromarray(color_image)
+            # self.topic_pil_image = Image.fromarray(color_image)
+            self.topic_pil_image = color_image
             self.topic_depth = depth_image
             self.topic_trans = np.array([msg.translation_x, msg.translation_y, msg.translation_z, msg.rotation_x, msg.rotation_y, msg.rotation_z, msg.rotation_w])
     

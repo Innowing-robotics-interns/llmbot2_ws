@@ -16,6 +16,7 @@ from ultralytics import YOLO
 # class GD_LSeg_ImageProcessor
 from groundingdino.util.inference import load_model, predict, annotate, load_image_wo_PIL
 import groundingdino.datasets.transforms as T
+import cv2
 
 '''
 Each ImageProcessor should have the following methods:
@@ -263,12 +264,13 @@ class YOLO_LSeg_ImageProcessor:
         return feat_list, pixel_list, name_list, conf_list
 
 class GD_LSeg_ImageProcessor:
-    def __init__(self, conf_threshold=0.35, name="gd_lseg"):
+    def __init__(self, conf_threshold=0.45, name="gd_lseg", save_current_frame=True):
         self.name = name
         self.conf_threshold = conf_threshold
 
         self.label_used = True
-        # self.model = YOLO(model_path)
+
+        self.save_current_frame = save_current_frame
 
         self.image_offset_x = 0
         self.image_offset_y = 0
@@ -281,7 +283,7 @@ class GD_LSeg_ImageProcessor:
             self.TEXT_PROMPT = f.read().strip()
             print("text prompt loaded")
             print(self.TEXT_PROMPT)
-        self.BOX_TRESHOLD = 0.35
+        self.BOX_TRESHOLD = 0.40
         self.TEXT_TRESHOLD = 0.30
         print("load done")
     
@@ -293,6 +295,9 @@ class GD_LSeg_ImageProcessor:
 
     def get_label(self, image):
         image = self.update_current_image(image)
+        if self.save_current_frame:
+            image_o = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
+            cv2.imwrite("/home/fyp/llmbot2_ws/src/sem_map/scripts/robot_view_gd.jpg", image_o)
         image_source, image = load_image_wo_PIL(image)
         boxes, logits, phrases = predict(
             model=self.gd_model,
@@ -301,6 +306,9 @@ class GD_LSeg_ImageProcessor:
             box_threshold=self.BOX_TRESHOLD,
             text_threshold=self.TEXT_TRESHOLD
         )
+        if self.save_current_frame:
+            annotated_frame = annotate(image_source=image_source, boxes=boxes, logits=logits, phrases=phrases)
+            cv2.imwrite("/home/fyp/llmbot2_ws/src/sem_map/scripts/gd_lseg_current.jpg", annotated_frame)
         xy = []
         boxes = boxes.cpu().detach().numpy().tolist()
         for cx, cy, w, h in boxes:
