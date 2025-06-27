@@ -5,7 +5,7 @@ gnome-terminal --tab --title="sem_map_yolo_lseg" -- bash -c "ros2 run sem_map se
 
 sleep 10
 
-gnome-terminal --tab --title="image_socket_recv" -- bash -c "ros2 run sem_map image_socket_recv"
+gnome-terminal --tab --title="image_transform_client.py" -- bash -c "ros2 run sem_map image_transform_client.py"
 gnome-terminal --tab --title="query_socket_handler" -- bash -c "ros2 run sem_map query_socket_handler"
 
 sleep 10
