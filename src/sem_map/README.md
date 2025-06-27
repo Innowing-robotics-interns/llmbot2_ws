@@ -12,7 +12,8 @@ sem_map_service_lseg_feat
 sem_map_service_yolo_lseg
 sem_map_service_yw_lseg
 ```
-(I tried writing it in one launch file and set the model as parameter, but the guide in ROS official website didn't work, if you are later interns you could try fixing it)
+each corresponding with a different model
+(I tried writing it in one launch file and set the model as parameter, but the guide in ROS official website didn't work, if you are later interns you could try fixing this)
 
 If you are using https://github.com/BillieGuo/HKU-2425FYP-RobotHelper
 
@@ -32,3 +33,7 @@ Then go back to the robot's on board computer Semantic Map Query
 ```bash
 ros2 run semantic_map query_semantic_map
 ```
+
+PS:
+image_transform_client receives the rgb color image, the depth image, and the transform(localization) of the robot. These are send by image_transform_listener.
+query_socket_handler receives object query from the robot on-board computer. It then send a requests to the semantic map services that are running.
